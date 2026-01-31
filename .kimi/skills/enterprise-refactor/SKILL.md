@@ -4,8 +4,8 @@
 
 本Skill用于指导企业级系统重构项目，确保重构过程可复用、可追踪、可维护。特别针对基于OptaPlanner的排班优化系统。
 
-**版本**: 8.0.0  
-**更新日期**: 2025-01-30  
+**版本**: 8.0.1  
+**更新日期**: 2026-01-31  
 **维护团队**: Enterprise Architecture Team
 
 ## 适用场景
@@ -456,6 +456,82 @@ curl -X POST http://config-server/rollback/app/profile
 3. `docs/refactoring/PERFORMANCE_BASELINE.md` - 性能基线
 4. `docs/refactoring/ARCHITECTURE_DECISIONS.md` - 架构决策记录
 
+## 部署脚本规范
+
+### Windows 7/10/11 兼容性要求
+
+所有部署脚本必须遵循以下规范以确保跨版本Windows兼容：
+
+#### 1. 编码规范
+```batch
+@echo off
+setlocal enabledelayedexpansion
+REM 使用基本ASCII字符，避免UTF-8特殊字符
+```
+
+#### 2. 延迟命令规范
+```batch
+REM ❌ 避免使用 timeout (Win7基础版可能不支持)
+timeout /t 5 /nobreak >nul
+
+REM ✅ 使用 ping 实现延迟 (全版本兼容)
+ping 127.0.0.1 -n 6 >nul
+```
+
+#### 3. 文件名规范
+```batch
+REM ❌ 避免中文文件名 (英文版Win7可能乱码)
+启动服务.bat
+停止服务.bat
+
+REM ✅ 使用英文文件名
+start.bat
+stop.bat
+autostart-enable.bat
+```
+
+#### 4. 管理员权限检查
+```batch
+net session >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Administrator privileges required!
+    pause
+    exit /b 1
+)
+```
+
+#### 5. 路径处理
+```batch
+REM 使用 cd /d 处理含空格路径
+cd /d "%~dp0"
+```
+
+### 标准脚本清单
+
+| 脚本 | 用途 | 管理员权限 | 兼容性 |
+|------|------|------------|--------|
+| `start.bat` | 启动所有服务 | 否 | Win7/10/11 |
+| `stop.bat` | 停止所有服务 | 否 | Win7/10/11 |
+| `autostart-enable.bat` | 启用开机自启 | 是 | Win7/10/11 |
+| `autostart-disable.bat` | 禁用开机自启 | 是 | Win7/10/11 |
+| `start-silent.vbs` | 静默启动（无窗口） | 否 | Win7/10/11 |
+
+### 部署包结构
+```
+deploy/win7-package/
+├── start.bat              # 启动服务
+├── stop.bat               # 停止服务
+├── autostart-enable.bat   # 配置开机自启
+├── autostart-disable.bat  # 取消开机自启
+├── start-silent.vbs       # 静默启动脚本
+├── SimpleHttpServer.java  # 前端HTTP服务器源码
+├── supervisor/            # 应用目录
+│   ├── backend/app/       # 后端JAR
+│   └── frontend/          # 前端静态文件
+├── java-runtime/          # JDK 17 (分发时不包含，需单独提供)
+└── logs/                  # 日志目录
+```
+
 ## 相关资源
 
 - **故障排查**: [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)
@@ -472,5 +548,5 @@ curl -X POST http://config-server/rollback/app/profile
 ---
 
 **维护者**: Enterprise Architecture Team  
-**版本**: 8.0.0  
-**更新日期**: 2025-01-30
+**版本**: 8.0.1  
+**更新日期**: 2026-01-31

@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<solver>
+
+    <!-- 解决方案类 -->
+    <solutionClass>com.examiner.scheduler.domain.ExamSchedule</solutionClass>
+    
+    <!-- 规划实体类 -->
+    <entityClass>com.examiner.scheduler.domain.ExamAssignment</entityClass>
+    
+    <!-- 约束提供者 - 🚀 使用简化的约束提供者 -->
+    <scoreDirectorFactory>
+        <constraintProviderClass>com.examiner.scheduler.solver.SmallScaleConstraintProvider</constraintProviderClass>
+    </scoreDirectorFactory>
+    
+    <!-- 🚀 性能优化：启用多线程移动评估 -->
+    <moveThreadCount>AUTO</moveThreadCount>
+    
+    <!-- 🚀 小规模优化：30秒总时间，5秒无改进即停止 -->
+    <termination>
+        <or>
+            <!-- 条件1：最大求解时间30秒 -->
+            <spentLimit>PT30S</spentLimit>
+            <!-- 条件2：5秒内没有改进就停止 -->
+            <unimprovedSpentLimit>PT5S</unimprovedSpentLimit>
+        </or>
+    </termination>
+    
+    <!-- 构造启发式算法 -->
+    <constructionHeuristic>
+        <constructionHeuristicType>FIRST_FIT_DECREASING</constructionHeuristicType>
+        <!-- 🚀 使用实体难度排序 -->
+        <entitySorterManner>DECREASING_DIFFICULTY</entitySorterManner>
+        <!-- 🚀 使用值强度排序 -->
+        <valueSorterManner>INCREASING_STRENGTH</valueSorterManner>
+        <forager>
+            <!-- 小规模问题快速构造 -->
+            <acceptedCountLimit>50</acceptedCountLimit>
+        </forager>
+    </constructionHeuristic>
+    
+    <!-- 🚀 单阶段LocalSearch - 无近邻选择（小规模问题不需要） -->
+    <localSearch>
+        <unionMoveSelector>
+            <!-- Change Move: 改变单个变量 -->
+            <changeMoveSelector>
+                <cacheType>PHASE</cacheType>
+                <selectionOrder>CACHED</selectionOrder>
+            </changeMoveSelector>
+            <!-- Swap Move: 交换两个实体的变量 -->
+            <swapMoveSelector>
+                <cacheType>PHASE</cacheType>
+                <selectionOrder>CACHED</selectionOrder>
+            </swapMoveSelector>
+        </unionMoveSelector>
+        <acceptor>
+            <!-- Tabu Search: 防止循环 -->
+            <entityTabuSize>5</entityTabuSize>
+            <valueTabuSize>5</valueTabuSize>
+            <!-- Late Acceptance: 接受略差的解 -->
+            <lateAcceptanceSize>200</lateAcceptanceSize>
+        </acceptor>
+        <forager>
+            <!-- 每次迭代接受最多500个移动 -->
+            <acceptedCountLimit>500</acceptedCountLimit>
+        </forager>
+    </localSearch>
+    
+</solver>
+

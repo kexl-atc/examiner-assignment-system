@@ -1,0 +1,25 @@
+{
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.compile.nullAnalysis.mode": "disabled",
+    "files.encoding": "utf8",
+    "java.configuration.maven.userSettings": null,
+    "java.project.sourcePaths": ["src/main/java"],
+    "java.project.outputPath": "target/classes",
+    "java.project.referencedLibraries": [
+        "target/lib/**/*.jar",
+        "target/classes/**"
+    ],
+    "java.configuration.runtimes": [],
+    "java.clean.workspace": true,
+    "java.import.gradle.enabled": false,
+    "java.import.maven.enabled": true,
+    "java.saveActions.organizeImports": true,
+    "java.sources.organizeImports.starThreshold": 99,
+    "java.sources.organizeImports.staticStarThreshold": 99,
+    "java.completion.importOrder": [
+        "java",
+        "javax", 
+        "com",
+        "org"
+    ]
+} 

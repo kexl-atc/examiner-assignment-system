@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plannerBenchmark>
+    <!-- Benchmarker配置：用于系统化性能测试和配置优化 -->
+    
+    <!-- 基准测试报告输出目录 -->
+    <benchmarkDirectory>target/benchmarks</benchmarkDirectory>
+    
+    <!-- 并行执行基准测试（加快测试速度） -->
+    <parallelBenchmarkCount>AUTO</parallelBenchmarkCount>
+    
+    <!-- 预热阶段：首次运行不计入统计（消除JVM预热影响） -->
+    <warmUpSecondsSpentLimit>30</warmUpSecondsSpentLimit>
+    
+    <!-- 继承默认求解器配置 -->
+    <inheritedSolverBenchmark>
+        <problemBenchmarks>
+            <!-- 📁 在这里添加测试数据文件路径 -->
+            <!-- <inputSolutionFile>data/small-problem.json</inputSolutionFile> -->
+            <!-- <inputSolutionFile>data/medium-problem.json</inputSolutionFile> -->
+            <!-- <inputSolutionFile>data/large-problem.json</inputSolutionFile> -->
+        </problemBenchmarks>
+        
+        <!-- 基准求解器配置 -->
+        <solver>
+            <solutionClass>com.examiner.scheduler.domain.ExamSchedule</solutionClass>
+            <entityClass>com.examiner.scheduler.domain.ExamAssignment</entityClass>
+            <scoreDirectorFactory>
+                <constraintProviderClass>com.examiner.scheduler.solver.OptimizedExamScheduleConstraintProvider</constraintProviderClass>
+            </scoreDirectorFactory>
+            
+            <!-- 🚀 基准测试终止条件：固定求解时间以便对比 -->
+            <termination>
+                <minutesSpentLimit>5</minutesSpentLimit>
+            </termination>
+        </solver>
+    </inheritedSolverBenchmark>
+    
+    <!-- ========================================
+         配置1: 当前优化配置（基准）
+         ========================================= -->
+    <solverBenchmark>
+        <name>优化配置-近邻选择</name>
+        <solver>
+            <constructionHeuristic>
+                <constructionHeuristicType>FIRST_FIT_DECREASING</constructionHeuristicType>
+                <entitySorterManner>DECREASING_DIFFICULTY</entitySorterManner>
+                <valueSorterManner>INCREASING_STRENGTH</valueSorterManner>
+            </constructionHeuristic>
+            <localSearch>
+                <!-- 第一阶段：快速探索 -->
+                <localSearchPhase>
+                    <unionMoveSelector>
+                        <changeMoveSelector>
+                            <cacheType>PHASE</cacheType>
+                            <selectionOrder>CACHED</selectionOrder>
+                        </changeMoveSelector>
+                        <swapMoveSelector>
+                            <cacheType>PHASE</cacheType>
+                            <selectionOrder>CACHED</selectionOrder>
+                        </swapMoveSelector>
+                    </unionMoveSelector>
+                    <acceptor>
+                        <entityTabuSize>7</entityTabuSize>
+                        <valueTabuSize>7</valueTabuSize>
+                    </acceptor>
+                    <termination>
+                        <secondsSpentLimit>60</secondsSpentLimit>
+                    </termination>
+                </localSearchPhase>
+                
+                <!-- 第二阶段：近邻选择 -->
+                <localSearchPhase>
+                    <unionMoveSelector>
+                        <changeMoveSelector>
+                            <entitySelector id="entitySelector1"/>
+                            <valueSelector>
+                                <variableName>examiner2</variableName>
+                                <nearbySelection>
+                                    <originEntitySelector>
+                                        <mimicSelectorRef>entitySelector1</mimicSelectorRef>
+                                    </originEntitySelector>
+                                    <nearbyDistanceMeterClass>com.examiner.scheduler.solver.TeacherDepartmentDistanceMeter</nearbyDistanceMeterClass>
+                                    <parabolicDistributionSizeMaximum>20</parabolicDistributionSizeMaximum>
+                                </nearbySelection>
+                            </valueSelector>
+                        </changeMoveSelector>
+                    </unionMoveSelector>
+                    <acceptor>
+                        <lateAcceptanceSize>400</lateAcceptanceSize>
+                    </acceptor>
+                    <termination>
+                        <secondsSpentLimit>240</secondsSpentLimit>
+                    </termination>
+                </localSearchPhase>
+            </localSearch>
+        </solver>
+    </solverBenchmark>
+    
+    <!-- ========================================
+         配置2: 传统配置（对比基准）
+         ========================================= -->
+    <solverBenchmark>
+        <name>传统配置-无近邻选择</name>
+        <solver>
+            <constructionHeuristic>
+                <constructionHeuristicType>FIRST_FIT_DECREASING</constructionHeuristicType>
+            </constructionHeuristic>
+            <localSearch>
+                <unionMoveSelector>
+                    <changeMoveSelector/>
+                    <swapMoveSelector/>
+                </unionMoveSelector>
+                <acceptor>
+                    <entityTabuSize>7</entityTabuSize>
+                    <valueTabuSize>7</valueTabuSize>
+                    <lateAcceptanceSize>400</lateAcceptanceSize>
+                </acceptor>
+            </localSearch>
+        </solver>
+    </solverBenchmark>
+    
+    <!-- ========================================
+         配置3: 激进优化配置（测试极限性能）
+         ========================================= -->
+    <solverBenchmark>
+        <name>激进优化-大缓存+大禁忌表</name>
+        <solver>
+            <constructionHeuristic>
+                <constructionHeuristicType>FIRST_FIT_DECREASING</constructionHeuristicType>
+                <entitySorterManner>DECREASING_DIFFICULTY</entitySorterManner>
+                <valueSorterManner>INCREASING_STRENGTH</valueSorterManner>
+            </constructionHeuristic>
+            <localSearch>
+                <unionMoveSelector>
+                    <changeMoveSelector>
+                        <cacheType>PHASE</cacheType>
+                        <selectionOrder>CACHED</selectionOrder>
+                    </changeMoveSelector>
+                    <swapMoveSelector>
+                        <cacheType>PHASE</cacheType>
+                        <selectionOrder>CACHED</selectionOrder>
+                    </swapMoveSelector>
+                </unionMoveSelector>
+                <acceptor>
+                    <entityTabuSize>15</entityTabuSize>
+                    <valueTabuSize>15</valueTabuSize>
+                    <lateAcceptanceSize>800</lateAcceptanceSize>
+                </acceptor>
+            </localSearch>
+        </solver>
+    </solverBenchmark>
+</plannerBenchmark>
+

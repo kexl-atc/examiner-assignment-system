@@ -1,0 +1,480 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica,
+    Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  line-height: 1.5;
+  font-weight: 400;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  
+  /* 响应式变量 */
+  --sidebar-width: 280px;
+  --sidebar-collapsed-width: 80px;
+  --header-height: 64px;
+  --content-padding: 32px;
+  --border-radius: 16px;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  
+  /* 新增响应式变量 */
+  --mobile-header-height: 56px;
+  /* 侧边栏宽度统一为 280px，不随屏幕大小变化 */
+  --tablet-sidebar-width: 280px;
+  --desktop-sidebar-width: 280px;
+  
+  /* 响应式字体大小 */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 1.875rem;
+  
+  /* 响应式间距 */
+  --spacing-xs: 0.5rem;
+  --spacing-sm: 0.75rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+}
+
+/* 基础响应式样式 */
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #f5f7fa; /* 防止出现白色空白区域 */
+}
+
+#app {
+  min-height: 100vh;
+  /* use 100% instead of 100vw to avoid including scrollbar width which can cause horizontal scroll */
+  width: 100%;
+  /* allow the page to scroll when content overflows the viewport */
+  overflow: auto;
+  display: block;
+}
+
+/* 响应式容器 */
+.responsive-container {
+  width: 100%;
+  max-width: 100vw;
+  margin: 0 auto;
+  padding: 0;
+}
+
+/* 移动端优化 (< 640px) */
+@media (max-width: 639px) {
+  :root {
+    --sidebar-width: 100vw;
+    --sidebar-collapsed-width: 60px;
+    --header-height: var(--mobile-header-height);
+    --content-padding: 16px;
+    --border-radius: 12px;
+  }
+  
+  .mobile-hidden {
+    display: none !important;
+  }
+  
+  .mobile-full-width {
+    width: 100% !important;
+  }
+  
+  .mobile-stack {
+    flex-direction: column !important;
+  }
+  
+  .mobile-center {
+    text-align: center !important;
+  }
+  
+  /* 移动端表格优化 */
+  .mobile-table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* 移动端按钮优化 */
+  .mobile-btn {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 12px 16px;
+  }
+  
+  /* 移动端字体优化 */
+  .mobile-text-sm {
+    font-size: 14px !important;
+  }
+  
+  .mobile-text-xs {
+    font-size: 12px !important;
+  }
+}
+
+/* 小屏平板 (640px - 767px) */
+@media (min-width: 640px) and (max-width: 767px) {
+  :root {
+    --sidebar-width: 280px;
+    --sidebar-collapsed-width: 70px;
+    --content-padding: 20px;
+    --border-radius: 14px;
+  }
+}
+
+/* 平板端优化 (768px - 1023px) */
+@media (min-width: 768px) and (max-width: 1023px) {
+  :root {
+    --sidebar-width: 280px;
+    --sidebar-collapsed-width: 70px;
+    --content-padding: 24px;
+  }
+  
+  .tablet-grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+}
+
+/* 桌面端优化 (1024px - 1279px) */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  :root {
+    --sidebar-width: 280px;
+    --sidebar-collapsed-width: 80px;
+    --content-padding: 32px;
+  }
+}
+
+/* 大桌面优化 (1280px - 1535px) */
+@media (min-width: 1280px) and (max-width: 1535px) {
+  :root {
+    --sidebar-width: 280px;
+    --content-padding: 36px;
+  }
+}
+
+/* 宽屏优化 (1536px - 1919px) */
+@media (min-width: 1536px) and (max-width: 1919px) {
+  :root {
+    /* 保持侧边栏宽度一致，不随屏幕变宽 */
+    --sidebar-width: 280px;
+    --content-padding: 40px;
+  }
+}
+
+/* 超宽屏优化 (≥ 1920px) */
+@media (min-width: 1920px) {
+  :root {
+    /* 保持侧边栏宽度一致，不随屏幕变宽 */
+    --sidebar-width: 280px;
+    --content-padding: 48px;
+  }
+  
+  .responsive-container {
+    max-width: 1920px;
+  }
+}
+
+/* 通用响应式工具类 */
+.flex-responsive {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+/* helper: ensure flex children can shrink and not force parent overflow */
+.flex-child {
+  min-width: 0;
+}
+
+.grid-responsive {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+@media (max-width: 639px) {
+  .grid-responsive {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+}
+
+.text-responsive {
+  font-size: clamp(0.875rem, 2.5vw, 1.125rem);
+}
+
+.padding-responsive {
+  padding: var(--content-padding);
+}
+
+.margin-responsive {
+  margin: calc(var(--content-padding) / 2);
+}
+
+/* 响应式间距工具类 */
+.space-responsive > * + * {
+  margin-top: clamp(0.5rem, 2vw, 1rem);
+}
+
+.gap-responsive {
+  gap: clamp(0.5rem, 2vw, 1.5rem);
+}
+
+/* 响应式布局工具类 */
+.layout-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+@media (min-width: 768px) {
+  .layout-stack-md {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+.layout-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .layout-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .layout-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 1280px) {
+  .layout-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* 滚动条优化 */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f1f5f9;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 触摸设备优化 */
+@media (hover: none) and (pointer: coarse) {
+  .touch-friendly {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  .touch-padding {
+    padding: 12px 16px;
+  }
+  
+  /* 增大触摸目标 */
+  button, input, select, textarea, a {
+    min-height: 44px;
+  }
+  
+  /* 优化表格在触摸设备上的滚动 */
+  .touch-scroll {
+    -webkit-overflow-scrolling: touch;
+    overflow-x: auto;
+  }
+}
+
+/* 高对比度模式支持 */
+@media (prefers-contrast: high) {
+  :root {
+    --shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  }
+  
+  .high-contrast {
+    border: 2px solid currentColor;
+  }
+}
+
+/* 减少动画偏好支持 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 深色模式支持 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #1f2937;
+    --bg-secondary: #111827;
+    --text-primary: #f9fafb;
+    --text-secondary: #d1d5db;
+    --border-color: #374151;
+  }
+}
+
+/* 容器查询支持 (现代浏览器) */
+@container (max-width: 600px) {
+  .container-responsive {
+    padding: 1rem;
+  }
+}
+
+@container (min-width: 600px) {
+  .container-responsive {
+    padding: 2rem;
+  }
+}
+
+/* 打印样式优化 */
+@media print {
+  .print-hidden {
+    display: none !important;
+  }
+  
+  .print-full-width {
+    width: 100% !important;
+  }
+  
+  .sidebar,
+  .mobile-menu-btn,
+  .sidebar-toggle {
+    display: none !important;
+  }
+  
+  .main-content {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+  
+  * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
+
+/* 无障碍优化 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 焦点可见性优化 */
+.focus-visible:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* 响应式表格 */
+.responsive-table {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--border-radius);
+}
+
+.responsive-table::-webkit-scrollbar {
+  height: 8px;
+}
+
+.responsive-table::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+.responsive-table::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+@media (max-width: 767px) {
+  .responsive-table table {
+    font-size: 0.875rem;
+  }
+  
+  .responsive-table th,
+  .responsive-table td {
+    padding: 0.75rem 0.5rem;
+    min-width: 100px;
+  }
+  
+  .responsive-table th {
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 10;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .responsive-table th,
+  .responsive-table td {
+    padding: 0.875rem 0.75rem;
+  }
+}
+
+/* 响应式模态框 */
+.responsive-modal {
+  width: 90vw;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+@media (min-width: 640px) {
+  .responsive-modal {
+    width: 80vw;
+    max-width: 600px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .responsive-modal {
+    width: 70vw;
+    max-width: 800px;
+  }
+}
+

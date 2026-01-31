@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<solver>
+
+    <!-- 解决方案类 -->
+    <solutionClass>com.examiner.scheduler.domain.ExamSchedule</solutionClass>
+    
+    <!-- 规划实体类 -->
+    <entityClass>com.examiner.scheduler.domain.ExamAssignment</entityClass>
+    
+    <!-- 约束提供者 -->
+    <scoreDirectorFactory>
+        <constraintProviderClass>com.examiner.scheduler.solver.OptimizedExamScheduleConstraintProvider</constraintProviderClass>
+    </scoreDirectorFactory>
+    
+    <!-- 🚀 性能优化：启用多线程移动评估 (暂时关闭以提高稳定性) -->
+    <moveThreadCount>NONE</moveThreadCount>
+    
+    <!-- 🚀 大规模问题优化配置（>100名学员）
+         注意：小规模问题（≤20人）和中规模问题（21-100人）应使用Java代码配置，
+         此XML配置仅作为大规模问题的备用配置 -->
+    <termination>
+        <or>
+            <!-- 条件1：最大求解时间120秒（大规模问题） -->
+            <spentLimit>PT120S</spentLimit>
+            <!-- 条件2：20秒内没有改进就停止 -->
+            <unimprovedSpentLimit>PT20S</unimprovedSpentLimit>
+            <!-- 🔧 关键修复：移除bestScoreLimit，避免过早终止 -->
+            <!-- 让求解器充分验证所有硬约束，避免返回"伪完美"解 -->
+        </or>
+    </termination>
+    
+    <!-- 🔧 改进的构造启发式算法 -->
+    <constructionHeuristic>
+        <!-- 使用FIRST_FIT_DECREASING，但允许更多探索 -->
+        <constructionHeuristicType>FIRST_FIT_DECREASING</constructionHeuristicType>
+        <!-- 🚀 使用实体难度排序 -->
+        <entitySorterManner>DECREASING_DIFFICULTY</entitySorterManner>
+        <!-- 🚀 使用值强度排序 -->
+        <valueSorterManner>INCREASING_STRENGTH</valueSorterManner>
+        <forager>
+            <!-- 🔧 减少到50，加快初始解构造 -->
+            <acceptedCountLimit>50</acceptedCountLimit>
+        </forager>
+    </constructionHeuristic>
+    
+    <!-- 🔧 优化的局部搜索算法 - 🚀 性能优化：添加多阶段搜索 + 近邻选择 -->
+    <localSearch>
+        <!-- 第一阶段: 快速探索（前30秒） -->
+        <localSearchPhase>
+            <unionMoveSelector>
+                <changeMoveSelector>
+                    <cacheType>PHASE</cacheType>
+                    <selectionOrder>CACHED</selectionOrder>
+                </changeMoveSelector>
+                <swapMoveSelector>
+                    <cacheType>PHASE</cacheType>
+                    <selectionOrder>CACHED</selectionOrder>
+                </swapMoveSelector>
+            </unionMoveSelector>
+            <acceptor>
+                <entityTabuSize>7</entityTabuSize>
+                <valueTabuSize>7</valueTabuSize>
+            </acceptor>
+            <forager>
+                <acceptedCountLimit>1000</acceptedCountLimit>
+            </forager>
+            <termination>
+                <spentLimit>PT30S</spentLimit>
+            </termination>
+        </localSearchPhase>
+        
+        <!-- 第二阶段: 🚀 近邻选择精细优化（30-90秒） -->
+        <localSearchPhase>
+            <unionMoveSelector>
+                <!-- 🚀 近邻选择：基于科室相近度优先选择合适的考官 -->
+                <changeMoveSelector>
+                    <entitySelector id="entitySelector1"/>
+                    <valueSelector>
+                        <!-- 针对examiner2变量使用近邻选择 -->
+                        <variableName>examiner2</variableName>
+                        <nearbySelection>
+                            <originEntitySelector>
+                                <mimicSelectorRef>entitySelector1</mimicSelectorRef>
+                            </originEntitySelector>
+                            <nearbyDistanceMeterClass>com.examiner.scheduler.solver.TeacherDepartmentDistanceMeter</nearbyDistanceMeterClass>
+                            <!-- 🚀 抛物线分布：80%选择最近的20个考官，20%随机探索 -->
+                            <parabolicDistributionSizeMaximum>20</parabolicDistributionSizeMaximum>
+                        </nearbySelection>
+                    </valueSelector>
+                </changeMoveSelector>
+                <!-- 备份考官也使用近邻选择 -->
+                <changeMoveSelector>
+                    <entitySelector id="entitySelector2"/>
+                    <valueSelector>
+                        <variableName>backupExaminer</variableName>
+                        <nearbySelection>
+                            <originEntitySelector>
+                                <mimicSelectorRef>entitySelector2</mimicSelectorRef>
+                            </originEntitySelector>
+                            <nearbyDistanceMeterClass>com.examiner.scheduler.solver.TeacherDepartmentDistanceMeter</nearbyDistanceMeterClass>
+                            <parabolicDistributionSizeMaximum>20</parabolicDistributionSizeMaximum>
+                        </nearbySelection>
+                    </valueSelector>
+                </changeMoveSelector>
+            </unionMoveSelector>
+            <acceptor>
+                <!-- 🔧 使用Late Acceptance获得更好的收敛 -->
+                <lateAcceptanceSize>400</lateAcceptanceSize>
+            </acceptor>
+            <forager>
+                <acceptedCountLimit>1</acceptedCountLimit>
+            </forager>
+            <termination>
+                <spentLimit>PT60S</spentLimit>
+            </termination>
+        </localSearchPhase>
+    </localSearch>
+    
+</solver>

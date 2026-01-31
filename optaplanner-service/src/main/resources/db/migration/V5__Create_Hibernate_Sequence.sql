@@ -1,0 +1,4 @@
+-- 创建Hibernate序列（用于PanacheEntity的ID生成）
+-- H2数据库支持序列，但需要显式创建
+CREATE SEQUENCE IF NOT EXISTS HIBERNATE_SEQUENCE START WITH 1 INCREMENT BY 1;
+

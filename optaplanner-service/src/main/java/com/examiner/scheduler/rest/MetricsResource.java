@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
  * 4. 系统健康度
  * 
  * @author Enterprise Architecture Team
- * @version 8.0.0
+ * @version 8.0.1
  */
 @Path("/api/metrics")
 @Produces(MediaType.APPLICATION_JSON)

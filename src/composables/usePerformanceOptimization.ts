@@ -8,7 +8,7 @@
  * 4. 内存管理
  * 
  * @author Enterprise Architecture Team
- * @version 8.0.0
+ * @version 8.0.1
  */
 
 import { ref, computed, onUnmounted, shallowRef, watch } from 'vue'

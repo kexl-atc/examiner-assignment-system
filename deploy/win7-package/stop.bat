@@ -2,7 +2,7 @@
 setlocal
 REM ========================================================
 REM Examiner Assignment System - Stop Service
-REM Version: 8.0.0
+REM Version: 8.0.1
 REM Compatible: Windows 7 SP1 / Windows 10 / Windows 11
 REM ========================================================
 

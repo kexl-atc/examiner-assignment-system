@@ -25,7 +25,7 @@ import java.util.EnumSet;
  * 4. 企业级稳定性保障
  * 
  * @author Enterprise Architecture Team
- * @version 8.0.0
+ * @version 8.0.1
  */
 @ApplicationScoped
 public class EnterpriseSolverConfig {

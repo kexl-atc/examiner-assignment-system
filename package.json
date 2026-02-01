@@ -1,6 +1,6 @@
 {
   "name": "examiner-assignment-system",
-  "version": "8.0.0",
+  "version": "8.0.1",
   "description": "智能考官排班系统 - 排班结果显示优化 + 拖拽排班功能设计",
   "main": "electron/main.js",
   "homepage": "./",

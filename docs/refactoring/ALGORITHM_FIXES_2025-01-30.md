@@ -221,4 +221,4 @@ mvn clean compile -DskipTests -q
 
 **修复者**: Kimi Code CLI  
 **日期**: 2025-01-30  
-**版本**: 8.0.0-hotfix-1
+**版本**: 8.0.1

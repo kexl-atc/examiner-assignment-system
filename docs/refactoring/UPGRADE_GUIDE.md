@@ -17,7 +17,7 @@ git push origin backup-$(date +%Y%m%d)
 # 2. 拉取新代码
 echo "⬇️  拉取重构代码..."
 git fetch origin
-git checkout v8.0.0
+git checkout v8.0.1
 
 # 3. 安装依赖
 echo "📥 安装依赖..."
@@ -396,6 +396,6 @@ examiner.cache.l1.ttl-seconds=600
 
 ---
 
-**版本**: 8.0.0  
+**版本**: 8.0.1  
 **更新日期**: 2025-01-30  
 **维护团队**: Enterprise Architecture Team

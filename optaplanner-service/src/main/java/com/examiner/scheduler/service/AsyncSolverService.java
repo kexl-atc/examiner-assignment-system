@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 6. 指标监控
  * 
  * @author Enterprise Architecture Team
- * @version 8.0.0
+ * @version 8.0.1
  */
 @ApplicationScoped
 public class AsyncSolverService {

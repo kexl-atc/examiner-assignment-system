@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * 5. 线程安全
  * 
  * @author Enterprise Architecture Team
- * @version 8.0.0
+ * @version 8.0.1
  */
 @ApplicationScoped
 public class EnterpriseCacheManager {

@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 REM ========================================================
 REM Examiner Assignment System - Start Service
-REM Version: 8.0.0
+REM Version: 8.0.1
 REM Compatible: Windows 7 SP1 / Windows 10 / Windows 11
 REM ========================================================
 
@@ -63,7 +63,7 @@ echo.
 
 REM Start frontend service
 echo Starting frontend service on port 8081...
-start "" /B "java-runtime\bin\javaw.exe" -cp . SimpleHttpServer 8081 "supervisor\frontend" >logs\frontend.log 2>&1
+start "" /B "java-runtime\bin\javaw.exe" -cp . SimpleHttpServer 8081 "supervisor\frontend\dist" >logs\frontend.log 2>&1
 echo [OK] Frontend service started
 echo.
 

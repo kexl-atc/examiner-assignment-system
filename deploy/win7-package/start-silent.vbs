@@ -1,5 +1,5 @@
 ' ========================================================n' Examiner Assignment System - Silent Start
-' Version: 8.0.0
+' Version: 8.0.1
 ' Compatible: Windows 7 SP1 / Windows 10 / Windows 11
 ' Description: Start services without showing command window
 ' ========================================================

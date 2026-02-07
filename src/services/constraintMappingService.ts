@@ -196,16 +196,6 @@ export class ConstraintMappingService {
   }
 
   /**
-   * 获取所有映射
-   */
-  async getAllMappings(): Promise<{
-    hardConstraints: Record<string, string>
-    softConstraints: Record<string, string>
-  }> {
-    return await this.getEffectiveMapping()
-  }
-
-  /**
    * 检查映射是否存在
    */
   async hasMappingFor(
@@ -377,7 +367,6 @@ export class ConstraintMappingService {
   clearCache(): void {
     this.apiMappingCache = {}
   }
-}
 
   // ============================================
   // 以下方法从 constraintMappingApi.ts 合并而来
@@ -420,10 +409,10 @@ export class ConstraintMappingService {
       const response = await apiService.get<Record<string, string>>(
         `${this.apiBaseUrl}/hard-constraints`
       )
-      return response.data || this.getHardConstraintMapping()
+      return response.data || this.getHardConstraintMappings()
     } catch (error) {
       console.error('获取硬约束映射失败:', error)
-      return this.getHardConstraintMapping()
+      return this.getHardConstraintMappings()
     }
   }
 
@@ -435,10 +424,10 @@ export class ConstraintMappingService {
       const response = await apiService.get<Record<string, string>>(
         `${this.apiBaseUrl}/soft-constraints`
       )
-      return response.data || this.getSoftConstraintMapping()
+      return response.data || this.getSoftConstraintMappings()
     } catch (error) {
       console.error('获取软约束映射失败:', error)
-      return this.getSoftConstraintMapping()
+      return this.getSoftConstraintMappings()
     }
   }
 
@@ -454,10 +443,12 @@ export class ConstraintMappingService {
         backendName: string
         constraintType: 'hard' | 'soft'
       }>(`${this.apiBaseUrl}/frontend-to-backend?frontendKey=${encodeURIComponent(frontendKey)}`)
-      return response.data || { backendName: await this.mapFrontendToBackend(frontendKey), constraintType: 'hard' }
+      const mapped = await this.mapFrontendToBackend(frontendKey)
+      return response.data || { backendName: mapped || 'unknown', constraintType: 'hard' }
     } catch (error) {
       console.error('获取后端约束失败:', error)
-      return { backendName: await this.mapFrontendToBackend(frontendKey), constraintType: 'hard' }
+      const mapped = await this.mapFrontendToBackend(frontendKey)
+      return { backendName: mapped || 'unknown', constraintType: 'hard' }
     }
   }
 
@@ -473,10 +464,12 @@ export class ConstraintMappingService {
         frontendKey: string
         constraintType: 'hard' | 'soft'
       }>(`${this.apiBaseUrl}/backend-to-frontend?backendName=${encodeURIComponent(backendName)}`)
-      return response.data || { frontendKey: await this.mapBackendToFrontend(backendName), constraintType: 'hard' }
+      const mapped = await this.mapBackendToFrontend(backendName)
+      return response.data || { frontendKey: mapped || 'unknown', constraintType: 'hard' }
     } catch (error) {
       console.error('获取前端约束失败:', error)
-      return { frontendKey: await this.mapBackendToFrontend(backendName), constraintType: 'hard' }
+      const mapped = await this.mapBackendToFrontend(backendName)
+      return { frontendKey: mapped || 'unknown', constraintType: 'hard' }
     }
   }
 

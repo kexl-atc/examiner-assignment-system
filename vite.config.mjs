@@ -1,15 +1,20 @@
 import { defineConfig, loadEnv } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import path from 'path'
-import { fileURLToPath } from 'url'
-import { readFileSync } from 'fs'
 import { execSync } from 'child_process'
+import { baseConfig, getAppVersion } from './vite.config.base.mjs'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-
-// 从 package.json 读取版本号
-const packageJson = JSON.parse(readFileSync(path.join(__dirname, 'package.json'), 'utf-8'))
-const appVersion = packageJson.version
+// 🔧 Win7 兼容：移除 HTML 中的 crossorigin 属性
+function removeCrossOriginPlugin() {
+  return {
+    name: 'remove-crossorigin',
+    enforce: 'post',
+    apply: 'build',
+    transformIndexHtml(html) {
+      return html
+        .replace(/\scrossorigin(="")?/g, '')
+        .replace(/crossorigin /g, '')
+    }
+  }
+}
 
 // 检查后端端口是否可用（使用 netstat）
 function checkBackendPort(port) {
@@ -57,23 +62,24 @@ export default defineConfig(({ mode }) => {
   
   console.log(`🔧 Vite 代理配置：${backendUrl}`)
 
+  const appVersion = getAppVersion()
+
   return {
-    plugins: [vue()],
+    // 使用公共配置
+    ...baseConfig,
+
+    // 开发/生产环境的 base 路径
     base: mode === 'production' ? './' : '/',
 
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, './src'),
-        '@config': path.resolve(__dirname, './src/config'),
-        '@utils': path.resolve(__dirname, './src/utils'),
-        '@composables': path.resolve(__dirname, './src/composables'),
-        '@services': path.resolve(__dirname, './src/services'),
-        '@types': path.resolve(__dirname, './src/types')
-      },
-    },
+    // 🔧 Win7 兼容：使用插件移除 crossorigin 属性
+    plugins: [
+      ...(baseConfig.plugins || []),
+      mode === 'production' && removeCrossOriginPlugin()
+    ].filter(Boolean),
 
+    // CSS 配置（覆盖公共配置，添加 devSourcemap）
     css: {
-      postcss: './postcss.config.js',
+      ...baseConfig.css,
       devSourcemap: mode === 'development'
     },
 
@@ -153,36 +159,16 @@ export default defineConfig(({ mode }) => {
       }
     },
 
-    // 依赖预构建优化
-    optimizeDeps: {
-      include: [
-        'vue',
-        'vue-router',
-        'pinia',
-        'axios',
-        'dayjs',
-        'element-plus',
-        '@element-plus/icons-vue',
-        'chart.js',
-        'echarts'
-      ],
-      exclude: ['@iconify/json', 'fsevents']
-    },
+    // 依赖预构建优化（使用公共配置）
+    // optimizeDeps 已在 baseConfig 中定义
 
-    // 定义全局常量
-    define: {
-      __APP_VERSION__: JSON.stringify(appVersion),
-      __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
-      __ENV__: JSON.stringify(mode),
-      'process.env.NODE_ENV': JSON.stringify(mode),
-      'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion)
-    },
+    // 定义全局常量（使用公共配置的函数）
+    define: baseConfig.getDefine(mode, appVersion),
 
-    // ESBuild配置
+    // ESBuild配置（扩展公共配置）
     esbuild: {
-      target: 'es2020',
+      ...baseConfig.esbuild,
       drop: mode === 'production' ? ['console', 'debugger'] : [],
-      legalComments: 'none'
     }
   }
 })

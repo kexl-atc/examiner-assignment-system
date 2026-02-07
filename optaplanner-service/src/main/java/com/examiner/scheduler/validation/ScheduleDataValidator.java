@@ -133,9 +133,9 @@ public class ScheduleDataValidator {
         
         // 1. 检查考官数量是否充足（🔧 v5.5.7: 考虑时间因素）
         validateTeacherCount(result, studentCount, teacherCount, dayCount);
-        
-        // 2. 检查科室匹配情况
-        validateDepartmentMatch(result, students, teachers, constraints);
+
+        // 2. 检查科室匹配情况（🔧 v8.0.16: 考虑考试天数因素）
+        validateDepartmentMatch(result, students, teachers, constraints, dayCount);
         
         // 3. 检查日期范围
         validateDateRange(result, startDate, endDate, dayCount);
@@ -293,12 +293,14 @@ public class ScheduleDataValidator {
      * - 绝对最小：科室考官数 >= 科室学员数（至少1:1）
      * - 建议最小：科室考官数 >= 科室学员数 × 1.5
      * - 理想数量：科室考官数 >= 科室学员数 × 2
+     * 🔧 v8.0.16: 考虑考试天数因素，天数越多，阈值越宽松
      */
     private static void validateDepartmentMatch(
-            ValidationResult result, 
-            List<Student> students, 
+            ValidationResult result,
+            List<Student> students,
             List<Teacher> teachers,
-            OptimizedConstraintConfiguration constraints) {
+            OptimizedConstraintConfiguration constraints,
+            long dayCount) {
         
         // 统计各科室的学员和考官数量
         Map<String, Long> studentsByDept = students.stream()
@@ -316,53 +318,62 @@ public class ScheduleDataValidator {
             String dept = entry.getKey();
             long studentCountInDept = entry.getValue();
             long teacherCountInDept = teachersByDept.getOrDefault(dept, 0L);
-            
-            // 🔧 v5.5.7最终版：更宽松的科室验证逻辑
-            // 只有0考官或极度不足（< 50%）才error，其他都warning
-            long criticalMinimum = (long) Math.ceil(studentCountInDept * 0.5);   // 0.5:1 - 严重不足阈值
-            long absoluteMinimum = studentCountInDept;                           // 1:1 - 基本需求
-            long recommendedMinimum = (long) Math.ceil(studentCountInDept * 1.5); // 1.5:1 - 建议
-            long idealTeacherCount = studentCountInDept * 2;                     // 2:1 - 理想
-            
+
+            // 🔧 v8.0.16-refactored: 大幅放宽科室验证逻辑
+            // 计算每天平均学员数（每个学员需要2天考试）
+            double avgStudentsPerDay = (studentCountInDept * 2.0) / dayCount;
+
+            // 🔧 v8.0.16-refactored: 更宽松的科室验证逻辑
+            // 对于小科室，只要有考官就可以尝试排班
+            // 关键修改：放宽阈值，只要至少有2名考官就可以进行排班
+            long criticalMinimum = 2;   // 严重不足阈值：至少2名考官
+            long absoluteMinimum = 2;   // 基本需求：至少2名考官
+            long recommendedMinimum = Math.max(2, (long) Math.ceil(avgStudentsPerDay)); // 建议值
+            long idealTeacherCount = Math.max(3, (long) Math.ceil(avgStudentsPerDay * 1.5)); // 理想值
+
+            LOGGER.info("📊 [科室验证-{}] {}名学员, {}名考官, {}天, 每天平均{:.1f}名学员, 阈值: 严重<{}, 基本<{}, 建议<{}, 理想<={}",
+                dept, studentCountInDept, teacherCountInDept, dayCount, avgStudentsPerDay,
+                criticalMinimum, absoluteMinimum, recommendedMinimum, idealTeacherCount);
+
             if (teacherCountInDept == 0) {
                 // ❌ 致命错误：该科室完全没有考官
                 result.addError(
                     String.format("科室【%s】有%d名学员但没有考官", dept, studentCountInDept),
-                    String.format("请为科室【%s】增加至少%d名考官，或临时禁用\"考官1同科室\"约束（HC2）", 
+                    String.format("请为科室【%s】增加至少%d名考官，或临时禁用\"考官1同科室\"约束（HC2）",
                         dept, absoluteMinimum)
                 );
             } else if (teacherCountInDept < criticalMinimum) {
-                // ❌ 严重不足：考官数少于学员数的50%（确实太少）
+                // ❌ 严重不足：考官数少于每天平均学员数的50%
                 result.addError(
-                    String.format("科室【%s】考官严重不足（%d名学员，只有%d名考官，至少需要%d名）", 
-                        dept, studentCountInDept, teacherCountInDept, criticalMinimum),
-                    String.format("请为科室【%s】增加%d名考官，或考虑调整学员科室分配", 
+                    String.format("科室【%s】考官严重不足（%d名学员分布在%d天，每天平均%.1f名学员，只有%d名考官，至少需要%d名）",
+                        dept, studentCountInDept, dayCount, avgStudentsPerDay, teacherCountInDept, criticalMinimum),
+                    String.format("请为科室【%s】增加%d名考官，或考虑延长考试天数",
                         dept, criticalMinimum - teacherCountInDept)
                 );
             } else if (teacherCountInDept < absoluteMinimum) {
-                // ⚠️ 警告：考官数少于学员数，但考虑到时间因素可以尝试
+                // ⚠️ 警告：考官数少于每天平均学员数
                 result.addWarning(
-                    String.format("科室【%s】考官略不足（%d名学员，%d名考官，建议至少%d名）", 
-                        dept, studentCountInDept, teacherCountInDept, absoluteMinimum),
-                    String.format("建议为科室【%s】增加%d名考官。当前配置下考官需要轮换监考，可能增加排班难度", 
+                    String.format("科室【%s】考官略不足（%d名学员分布在%d天，每天平均%.1f名学员，%d名考官，建议至少%d名）",
+                        dept, studentCountInDept, dayCount, avgStudentsPerDay, teacherCountInDept, absoluteMinimum),
+                    String.format("建议为科室【%s】增加%d名考官，或延长考试天数",
                         dept, absoluteMinimum - teacherCountInDept)
                 );
             } else if (teacherCountInDept < recommendedMinimum) {
-                // ⚠️ 警告：考官数少于1.5倍，可以尝试但可能困难
+                // ⚠️ 警告：考官数少于建议值
                 result.addWarning(
-                    String.format("科室【%s】考官略不足（%d名学员，%d名考官，建议至少%d名）", 
-                        dept, studentCountInDept, teacherCountInDept, recommendedMinimum),
-                    String.format("建议为科室【%s】增加%d名考官以提高排班质量", 
+                    String.format("科室【%s】考官略不足（%d名学员分布在%d天，每天平均%.1f名学员，%d名考官，建议至少%d名）",
+                        dept, studentCountInDept, dayCount, avgStudentsPerDay, teacherCountInDept, recommendedMinimum),
+                    String.format("建议为科室【%s】增加%d名考官以提高排班质量",
                         dept, recommendedMinimum - teacherCountInDept)
                 );
             } else if (teacherCountInDept < idealTeacherCount) {
-                // 💡 提示：考官数介于1.5-2倍，基本够用
-                LOGGER.info("✅ 科室【{}】考官基本满足: {} / {} 学员 (理想: {})", 
-                    dept, teacherCountInDept, studentCountInDept, idealTeacherCount);
+                // 💡 提示：考官数介于建议-理想之间，基本够用
+                LOGGER.info("✅ 科室【{}】考官基本满足: {}名考官 / {}名学员 / {}天 (每天平均{:.1f}名学员, 理想: {}名考官)",
+                    dept, teacherCountInDept, studentCountInDept, dayCount, avgStudentsPerDay, idealTeacherCount);
             } else {
-                // ✅ 完美：考官数 >= 2倍
-                LOGGER.info("✅ 科室【{}】考官充足: {} / {} 学员", 
-                    dept, teacherCountInDept, studentCountInDept);
+                // ✅ 完美：考官数充足
+                LOGGER.info("✅ 科室【{}】考官充足: {}名考官 / {}名学员 / {}天",
+                    dept, teacherCountInDept, studentCountInDept, dayCount);
             }
         }
     }

@@ -285,6 +285,7 @@ public class AsyncSolverService {
      */
     private static class SolverTask {
         private final String id;
+        @SuppressWarnings("unused")
         private final ExamSchedule problem;
         private final EnterpriseSolverConfig.SolveMode mode;
         private final Instant createdAt;

@@ -95,10 +95,29 @@ public class Teacher extends PanacheEntity {
         domainTeacher.setName(this.name);
         // 🔧 修复：使用标准化的科室简写格式，确保约束逻辑正确工作
         domainTeacher.setDepartment(this.department != null ? normalizeDepartmentName(this.department.name) : "");
-        domainTeacher.setGroup(this.group != null ? this.group.name : "无");
+        // 🔧 关键修复：使用group.code转换为标准班组名称（"一组"、"二组"等），而不是group.name
+        // 因为DutySchedule中使用的是标准班组名称进行白班/晚班判断
+        domainTeacher.setGroup(this.group != null ? convertGroupCodeToName(this.group.code) : "无");
         domainTeacher.setWorkload(this.workload != null ? this.workload : 0);
         domainTeacher.setConsecutiveDays(this.consecutiveDays != null ? this.consecutiveDays : 0);
         return domainTeacher;
+    }
+    
+    /**
+     * 🔧 关键修复：将班组代码转换为标准班组名称
+     * 数据库中存储的是GROUP_1、GROUP_2等代码
+     * 但DutySchedule中使用的是"一组"、"二组"等名称进行判断
+     */
+    private String convertGroupCodeToName(String groupCode) {
+        if (groupCode == null) return "无";
+        switch (groupCode) {
+            case "GROUP_1": return "一组";
+            case "GROUP_2": return "二组";
+            case "GROUP_3": return "三组";
+            case "GROUP_4": return "四组";
+            case "GROUP_NONE": return "无";
+            default: return "无";
+        }
     }
     
     /**

@@ -1,6 +1,7 @@
 package com.examiner.scheduler.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.examiner.scheduler.config.HolidayConfig;
 import org.optaplanner.core.api.domain.lookup.PlanningId;
 import java.util.Objects;
 import java.util.List;
@@ -139,14 +140,31 @@ public class Teacher {
      * @param date 日期字符串，格式：YYYY-MM-DD
      * @return true表示在不可用期内，false表示可用
      * 🔧 v5.5.5: 移除所有调试日志，减少日志输出
+     * 🔧 修复：节假日不视为不可用（节假日由HC1约束单独处理，避免逻辑冗余）
      */
     public boolean isUnavailableOnDate(String date) {
+        return isUnavailableOnDate(date, null);
+    }
+    
+    /**
+     * 🆕 检查考官在指定日期是否在不可用期内（带节假日配置）
+     * @param date 日期字符串，格式：YYYY-MM-DD
+     * @param holidayConfig 节假日配置，如果为null则不做节假日过滤
+     * @return true表示在不可用期内，false表示可用
+     * 🔧 修复：如果日期是节假日，返回false（节假日由HC1约束单独处理）
+     */
+    public boolean isUnavailableOnDate(String date, HolidayConfig holidayConfig) {
         if (date == null || unavailablePeriods == null || unavailablePeriods.isEmpty()) {
             return false;
         }
         
         try {
             LocalDate checkDate = LocalDate.parse(date);
+            
+            // 🔧 修复：如果日期是节假日，不视为不可用（节假日由HC1约束单独处理）
+            if (holidayConfig != null && holidayConfig.isHoliday(checkDate)) {
+                return false;
+            }
             
             for (UnavailablePeriod period : unavailablePeriods) {
                 if (period.getStartDate() == null || period.getEndDate() == null) {
@@ -202,11 +220,74 @@ public class Teacher {
     }
     
     /**
+     * 🆕 自动清理不可用日期中的节假日
+     * 方案3实现：过滤掉不可用期中的节假日，避免逻辑冗余
+     * @param holidayConfig 节假日配置
+     * @return 清理的节假日数量
+     */
+    public int filterHolidaysFromUnavailablePeriods(HolidayConfig holidayConfig) {
+        if (unavailablePeriods == null || unavailablePeriods.isEmpty() || holidayConfig == null) {
+            return 0;
+        }
+        
+        int removedCount = 0;
+        List<UnavailablePeriod> filteredPeriods = new ArrayList<>();
+        
+        for (UnavailablePeriod period : unavailablePeriods) {
+            if (period.getStartDate() == null || period.getEndDate() == null) {
+                filteredPeriods.add(period);
+                continue;
+            }
+            
+            try {
+                LocalDate startDate = LocalDate.parse(period.getStartDate());
+                LocalDate endDate = LocalDate.parse(period.getEndDate());
+                
+                // 检查整个不可用期是否都是节假日
+                boolean isAllHoliday = true;
+                LocalDate current = startDate;
+                while (!current.isAfter(endDate)) {
+                    if (!holidayConfig.isHoliday(current)) {
+                        isAllHoliday = false;
+                        break;
+                    }
+                    current = current.plusDays(1);
+                }
+                
+                if (isAllHoliday) {
+                    // 整个期间都是节假日，移除这个不可用期
+                    removedCount++;
+                } else {
+                    // 保留部分包含非节假日的期间
+                    filteredPeriods.add(period);
+                }
+            } catch (Exception e) {
+                // 日期解析失败，保留原期间
+                filteredPeriods.add(period);
+            }
+        }
+        
+        unavailablePeriods = filteredPeriods;
+        return removedCount;
+    }
+    
+    /**
      * 检查考官是否可用（不是白班且不在不可用期内）
      */
     public boolean isAvailableForDate(String date, DutySchedule dutySchedule) {
-        // 首先检查是否在不可用期内
-        if (isUnavailableOnDate(date)) {
+        return isAvailableForDate(date, dutySchedule, null);
+    }
+    
+    /**
+     * 检查考官是否可用（不是白班且不在不可用期内）
+     * 🔧 修复：节假日不检查不可用期（节假日由HC1约束单独处理）
+     * @param date 日期字符串
+     * @param dutySchedule 班次安排
+     * @param holidayConfig 节假日配置，可为null
+     */
+    public boolean isAvailableForDate(String date, DutySchedule dutySchedule, HolidayConfig holidayConfig) {
+        // 首先检查是否在不可用期内（传入holidayConfig过滤节假日）
+        if (isUnavailableOnDate(date, holidayConfig)) {
             return false;
         }
         

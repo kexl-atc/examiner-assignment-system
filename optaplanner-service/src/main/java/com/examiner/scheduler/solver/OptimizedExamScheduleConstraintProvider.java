@@ -103,18 +103,21 @@ public class OptimizedExamScheduleConstraintProvider implements ConstraintProvid
         Boolean.parseBoolean(System.getProperty("optaplanner.performance.mode", "true"));
     
     // 🚀 性能模式下的日志辅助方法
+    @SuppressWarnings("unused")
     private static void logDebug(String format, Object... args) {
         if (!PERFORMANCE_MODE && logger.isDebugEnabled()) {
             logger.debug(format, args);
         }
     }
-    
+
+    @SuppressWarnings("unused")
     private static void logInfo(String format, Object... args) {
         if (!PERFORMANCE_MODE && logger.isInfoEnabled()) {
             logger.info(format, args);
         }
     }
-    
+
+    @SuppressWarnings("unused")
     private static void logWarn(String format, Object... args) {
         // 警告始终输出，但在性能模式下降级为debug
         if (PERFORMANCE_MODE) {
@@ -468,8 +471,7 @@ public class OptimizedExamScheduleConstraintProvider implements ConstraintProvid
             backupExaminerMustBeDifferentPerson(constraintFactory), // HC8: 备份考官不能与考官1和考官2是同一人（权重：1000000）🔥
             backupExaminerMustBeDifferentDepartment(constraintFactory), // HC8b: 备份考官不能与考官1和考官2同科室（权重：1000000）🔥🆕
             noUnavailableExaminer(constraintFactory),               // HC9: 考官不可用期不能安排考试（权重：1000000）🔥🆕
-            // 🔧 暂时禁用HC10，调试Drools编译问题
-            // pinnedAssignmentMustNotChange(constraintFactory),    // 🆕 HC10: 固定的排班不能改变（用于局部重排）（权重：1000000）🔥
+            pinnedAssignmentMustNotChange(constraintFactory),      // 🆕 HC10: 固定的排班不能改变（用于局部重排）（权重：1000000）🔥✅
             
             // 软约束 SC1-SC17（按权重从高到低排序）
             avoidWeekendScheduling(constraintFactory),              // SC16: 智能周末降级策略（权重：500）🌟🆕
@@ -514,6 +516,73 @@ public class OptimizedExamScheduleConstraintProvider implements ConstraintProvid
      * @param constraintFactory 约束工厂
      * @return 约束
      */
+    private Constraint pinnedAssignmentMustNotChange(ConstraintFactory constraintFactory) {
+        logger.info("📌 [HC10约束] 初始化: 固定的排班不能改变约束 (权重:1000000)");
+        
+        if (!isConstraintEnabled("HC10")) {
+            logger.warn("⚠️ [HC10约束] 约束已禁用，跳过执行");
+            return constraintFactory.forEach(ExamAssignment.class)
+                    .filter(assignment -> false)
+                    .penalize(HardSoftScore.ZERO)
+                    .asConstraint("pinnedAssignmentMustNotChange");
+        }
+        
+        logger.info("✅ [HC10约束] 约束已启用，开始检查固定排班");
+        
+        return constraintFactory
+                .forEach(ExamAssignment.class)
+                .filter(assignment -> {
+                    // 只检查被固定的排班
+                    if (!assignment.isPinned()) {
+                        return false;
+                    }
+                    
+                    // 检查考官1是否改变
+                    if (assignment.getOriginalExaminer1Name() != null && 
+                        assignment.getExaminer1() != null &&
+                        !assignment.getOriginalExaminer1Name().equals(assignment.getExaminer1().getName())) {
+                        logger.warn("🚨 [HC10违反] 固定排班考官1改变: " + 
+                            assignment.getStudentName() + " 原始=" + assignment.getOriginalExaminer1Name() + 
+                            " 当前=" + assignment.getExaminer1().getName());
+                        return true;
+                    }
+                    
+                    // 检查考官2是否改变
+                    if (assignment.getOriginalExaminer2Name() != null && 
+                        assignment.getExaminer2() != null &&
+                        !assignment.getOriginalExaminer2Name().equals(assignment.getExaminer2().getName())) {
+                        logger.warn("🚨 [HC10违反] 固定排班考官2改变: " + 
+                            assignment.getStudentName() + " 原始=" + assignment.getOriginalExaminer2Name() + 
+                            " 当前=" + assignment.getExaminer2().getName());
+                        return true;
+                    }
+                    
+                    // 检查备份考官是否改变
+                    if (assignment.getOriginalBackupExaminerName() != null && 
+                        assignment.getBackupExaminer() != null &&
+                        !assignment.getOriginalBackupExaminerName().equals(assignment.getBackupExaminer().getName())) {
+                        logger.warn("🚨 [HC10违反] 固定排班备份考官改变: " + 
+                            assignment.getStudentName() + " 原始=" + assignment.getOriginalBackupExaminerName() + 
+                            " 当前=" + assignment.getBackupExaminer().getName());
+                        return true;
+                    }
+                    
+                    // 检查考试日期是否改变
+                    if (assignment.getOriginalExamDate() != null && 
+                        assignment.getExamDate() != null &&
+                        !assignment.getOriginalExamDate().equals(assignment.getExamDate())) {
+                        logger.warn("🚨 [HC10违反] 固定排班考试日期改变: " + 
+                            assignment.getStudentName() + " 原始=" + assignment.getOriginalExamDate() + 
+                            " 当前=" + assignment.getExamDate());
+                        return true;
+                    }
+                    
+                    return false;
+                })
+                .penalize(getConstraintWeight("HC10", HardSoftScore.ofHard(1000000)))
+                .asConstraint("pinnedAssignmentMustNotChange");
+    }
+    
     /**
      * HC1: 法定节假日不安排考试（周六周日可以考试，但行政班考官周末不参加考试）
      * - 法定节假日（如春节、国庆节等）禁止安排考试
@@ -658,27 +727,38 @@ public class OptimizedExamScheduleConstraintProvider implements ConstraintProvid
                     com.examiner.scheduler.domain.DutySchedule dutySchedule = 
                         getCachedDutySchedule(assignment.getExamDate());
                     
-                    // 🚀 性能优化：直接检查，无日志开销
+                    // 🔍 调试日志：检查HC3约束
+                    String dayShift = dutySchedule.getDayShift();
+                    
                     // 检查考官1（行政班除外）
                     if (assignment.getExaminer1() != null) {
-                        if (!isAdminTeacher(assignment.getExaminer1()) &&
-                            Objects.equals(assignment.getExaminer1().getGroup(), dutySchedule.getDayShift())) {
+                        String examiner1Group = assignment.getExaminer1().getGroup();
+                        boolean isDayShift = Objects.equals(examiner1Group, dayShift);
+                        if (!isAdminTeacher(assignment.getExaminer1()) && isDayShift) {
+                            logger.warn("🚨 [HC3违反] 日期:{} , 考官1:{} 班组:{} 当天白班:{}", 
+                                assignment.getExamDate(), assignment.getExaminer1().getName(), examiner1Group, dayShift);
                             return true;  // 违反约束
                         }
                     }
                     
                     // 检查考官2（行政班除外）
                     if (assignment.getExaminer2() != null) {
-                        if (!isAdminTeacher(assignment.getExaminer2()) &&
-                            Objects.equals(assignment.getExaminer2().getGroup(), dutySchedule.getDayShift())) {
+                        String examiner2Group = assignment.getExaminer2().getGroup();
+                        boolean isDayShift = Objects.equals(examiner2Group, dayShift);
+                        if (!isAdminTeacher(assignment.getExaminer2()) && isDayShift) {
+                            logger.warn("🚨 [HC3违反] 日期:{} , 考官2:{} 班组:{} 当天白班:{}", 
+                                assignment.getExamDate(), assignment.getExaminer2().getName(), examiner2Group, dayShift);
                             return true;
                         }
                     }
                     
                     // 检查备份考官（行政班除外）
                     if (assignment.getBackupExaminer() != null) {
-                        if (!isAdminTeacher(assignment.getBackupExaminer()) &&
-                            Objects.equals(assignment.getBackupExaminer().getGroup(), dutySchedule.getDayShift())) {
+                        String backupGroup = assignment.getBackupExaminer().getGroup();
+                        boolean isDayShift = Objects.equals(backupGroup, dayShift);
+                        if (!isAdminTeacher(assignment.getBackupExaminer()) && isDayShift) {
+                            logger.warn("🚨 [HC3违反] 日期:{} , 备份考官:{} 班组:{} 当天白班:{}", 
+                                assignment.getExamDate(), assignment.getBackupExaminer().getName(), backupGroup, dayShift);
                             return true;
                         }
                     }
@@ -1109,6 +1189,7 @@ public class OptimizedExamScheduleConstraintProvider implements ConstraintProvid
      * - 检查考官1、考官2、备份考官是否在不可用期内
      * - 如果考官设置了不可用日期区间，在该期间内不能被分配
      * - 权重：100000（硬约束，必须满足）
+     * 🔧 修复：节假日不检查不可用期（节假日由HC1约束单独处理，避免逻辑冗余）
      */
     private Constraint noUnavailableExaminer(ConstraintFactory constraintFactory) {
         logger.info("🚫 [HC9约束] 初始化: 考官不可用期不能安排考试约束 (权重:100000)");
@@ -1121,7 +1202,7 @@ public class OptimizedExamScheduleConstraintProvider implements ConstraintProvid
                     .asConstraint("noUnavailableExaminer");
         }
         
-        logger.info("✅ [HC9约束] 约束已启用，开始检查考官不可用期");
+        logger.info("✅ [HC9约束] 约束已启用，开始检查考官不可用期（已优化：节假日不检查）");
         
         return constraintFactory
                 .forEach(ExamAssignment.class)
@@ -1133,21 +1214,31 @@ public class OptimizedExamScheduleConstraintProvider implements ConstraintProvid
                     
                     String examDate = assignment.getExamDate();
                     
-                    // 检查考官1是否在不可用期内
+                    // 🔧 修复：首先检查是否是节假日，节假日不检查不可用期（由HC1约束处理）
+                    try {
+                        LocalDate date = LocalDate.parse(examDate);
+                        if (holidayConfig.isHoliday(date)) {
+                            return false; // 节假日由HC1约束处理，HC9不处理
+                        }
+                    } catch (Exception e) {
+                        // 日期解析失败，继续检查
+                    }
+                    
+                    // 检查考官1是否在不可用期内（传入holidayConfig以过滤节假日）
                     if (assignment.getExaminer1() != null && 
-                        assignment.getExaminer1().isUnavailableOnDate(examDate)) {
+                        assignment.getExaminer1().isUnavailableOnDate(examDate, holidayConfig)) {
                         return true;
                     }
                     
                     // 检查考官2是否在不可用期内
                     if (assignment.getExaminer2() != null && 
-                        assignment.getExaminer2().isUnavailableOnDate(examDate)) {
+                        assignment.getExaminer2().isUnavailableOnDate(examDate, holidayConfig)) {
                         return true;
                     }
                     
                     // 检查备份考官是否在不可用期内
                     if (assignment.getBackupExaminer() != null && 
-                        assignment.getBackupExaminer().isUnavailableOnDate(examDate)) {
+                        assignment.getBackupExaminer().isUnavailableOnDate(examDate, holidayConfig)) {
                         return true;
                     }
                     
@@ -1574,10 +1665,12 @@ public class OptimizedExamScheduleConstraintProvider implements ConstraintProvid
                 default: return false;
             }
         } catch (Throwable t) {
-            return false; // 静默失败
+            // 记录异常但不中断流程
+            logger.warn("[isNightShiftGroupSafely] 判断晚班时发生异常: " + t.getMessage());
+            return false;
         }
     }
-    
+
     /**
      * 旧的方法保留但不再使用 - 移除复杂逻辑
      */

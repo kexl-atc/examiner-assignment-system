@@ -13,7 +13,6 @@ import org.optaplanner.core.config.solver.termination.TerminationConfig;
 import javax.enterprise.context.ApplicationScoped;
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.EnumSet;
 
 /**
  * 企业级求解器配置

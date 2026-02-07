@@ -70,12 +70,7 @@
           </div>
         </div>
         <div class="status-right">
-          <div class="quick-actions">
-            <button class="quick-btn" @click="navigateToNewSchedule">
-              <Plus class="btn-icon" />
-              <span>新建排班</span>
-            </button>
-          </div>
+          <!-- 快捷操作区域 - 已清理不必要的按钮 -->
         </div>
       </div>
 
@@ -317,7 +312,7 @@ const {
 )
 
 // 应用版本号 - 从 package.json 自动读取
-const appVersion = ref(import.meta.env.VITE_APP_VERSION || '6.1.0')
+const appVersion = ref(import.meta.env.VITE_APP_VERSION || '0.0.0')
 
 // 响应式数据
 const sidebarCollapsed = ref(false)
@@ -362,7 +357,7 @@ const showDutyTeachersForGroup = async (groupName: string) => {
     error.value = ''
 
     // 从存储服务加载考官数据
-    const { storageService } = await import('../utils/storageService')
+    const { storageService } = await import('../services/storageService')
     const teacherList = await storageService.loadTeachers()
 
     // 筛选出指定班组的考官

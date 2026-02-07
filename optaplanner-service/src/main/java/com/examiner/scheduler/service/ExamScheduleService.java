@@ -13,6 +13,7 @@ import javax.transaction.Transactional;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
@@ -20,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Objects;
 
 /**
  * 考试排班服务类
@@ -36,6 +38,9 @@ public class ExamScheduleService {
     @Inject
     ObjectMapper objectMapper;
     
+    @Inject
+    SchedulingGuidanceService guidanceService;
+    
     /**
      * 创建问题实例
      */
@@ -43,6 +48,18 @@ public class ExamScheduleService {
                                              List<Teacher> teachers, 
                                              String startDate, 
                                              String endDate,
+                                             OptimizedConstraintConfiguration constraints) {
+        return createProblemInstance(students, teachers, startDate, endDate, null, constraints);
+    }
+    
+    /**
+     * 创建问题实例（带前端计算的可用日期）
+     */
+    public ExamSchedule createProblemInstance(List<Student> students, 
+                                             List<Teacher> teachers, 
+                                             String startDate, 
+                                             String endDate,
+                                             List<String> frontendExamDates,
                                              OptimizedConstraintConfiguration constraints) {
         // ⭐ HC4约束修复：跟踪每天已分配的考官及其角色，避免同一考官在同一天多次分配
         // 🔧 关键修复：使用Map<日期, Map<考官ID, 分配详情>>结构，区分角色
@@ -62,13 +79,28 @@ public class ExamScheduleService {
         
         // 🆕 检查教师的不可用期数据
         LOGGER.info("🔍 [接收数据] 考官不可用期检查:");
+        
+        // 🔧 方案3：自动清理不可用期中的节假日
+        int totalFilteredHolidays = 0;
         for (Teacher t : teachers) {
             if (t.getUnavailablePeriods() != null && !t.getUnavailablePeriods().isEmpty()) {
-                LOGGER.warning("   ⚠️ 考官 " + t.getName() + " 有 " + t.getUnavailablePeriods().size() + " 个不可用期:");
-                for (Teacher.UnavailablePeriod period : t.getUnavailablePeriods()) {
-                    LOGGER.warning("      - " + period.getStartDate() + " ~ " + period.getEndDate() + " (原因: " + period.getReason() + ")");
+                int filtered = t.filterHolidaysFromUnavailablePeriods(holidayConfig);
+                if (filtered > 0) {
+                    totalFilteredHolidays += filtered;
+                    LOGGER.info("   🧹 考官 " + t.getName() + " 清理了 " + filtered + " 个节假日不可用期");
+                }
+                
+                if (!t.getUnavailablePeriods().isEmpty()) {
+                    LOGGER.warning("   ⚠️ 考官 " + t.getName() + " 有 " + t.getUnavailablePeriods().size() + " 个不可用期(已过滤节假日):");
+                    for (Teacher.UnavailablePeriod period : t.getUnavailablePeriods()) {
+                        LOGGER.warning("      - " + period.getStartDate() + " ~ " + period.getEndDate() + " (原因: " + period.getReason() + ")");
+                    }
                 }
             }
+        }
+        
+        if (totalFilteredHolidays > 0) {
+            LOGGER.info("   ✅ 共清理 " + totalFilteredHolidays + " 个包含节假日的不可用期");
         }
         LOGGER.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         
@@ -78,10 +110,16 @@ public class ExamScheduleService {
         schedule.setStudents(students);
         schedule.setTeachers(teachers);
         
-        // 生成可用日期（关键修复）
-        List<String> availableDates = generateAvailableDates(startDate, endDate);
-        schedule.setAvailableDates(availableDates);
-        LOGGER.info("生成可用日期: " + availableDates.size() + " 天");
+        // 🆕 使用前端传递的可用日期（已排除不可用日期和周末），如果没有则自己计算
+        List<String> availableDates;
+        if (frontendExamDates != null && !frontendExamDates.isEmpty()) {
+            availableDates = frontendExamDates;
+            LOGGER.info("🆕 使用前端传递的可用日期: " + availableDates.size() + " 天");
+            LOGGER.info("   说明: 这些日期已排除用户设置的不可用日期");
+        } else {
+            availableDates = generateAvailableDates(startDate, endDate);
+            LOGGER.info("生成可用日期: " + availableDates.size() + " 天");
+        }
         // 🔧 优化：只显示前5个和后5个日期，避免日志过长
         if (availableDates.size() <= 10) {
         LOGGER.info("可用日期详情: " + String.join(", ", availableDates));
@@ -891,8 +929,8 @@ public class ExamScheduleService {
                 continue;
             }
             
-            // HC9检查：考官不可用期不能安排 ⭐ 新增
-            if (teacher.isUnavailableOnDate(examDate)) {
+            // HC9检查：考官不可用期不能安排 ⭐ 新增（传入holidayConfig过滤节假日）
+            if (teacher.isUnavailableOnDate(examDate, holidayConfig)) {
                 continue;
             }
             
@@ -996,8 +1034,8 @@ public class ExamScheduleService {
                 continue;
             }
             
-            // HC9检查：考官不可用期不能安排 ⭐ 新增
-            if (teacher.isUnavailableOnDate(examDate)) {
+            // HC9检查：考官不可用期不能安排 ⭐ 新增（传入holidayConfig过滤节假日）
+            if (teacher.isUnavailableOnDate(examDate, holidayConfig)) {
                 continue;
             }
             
@@ -1050,8 +1088,8 @@ public class ExamScheduleService {
                 continue;
             }
             
-            // HC9检查：考官不可用期不能安排 ⭐ 新增
-            if (teacher.isUnavailableOnDate(examDate)) {
+            // HC9检查：考官不可用期不能安排 ⭐ 新增（传入holidayConfig过滤节假日）
+            if (teacher.isUnavailableOnDate(examDate, holidayConfig)) {
                 continue;
             }
             
@@ -1109,8 +1147,8 @@ public class ExamScheduleService {
                 continue;
             }
             
-            // HC9检查：考官不可用期不能安排 ⭐ 新增
-            if (teacher.isUnavailableOnDate(examDate)) {
+            // HC9检查：考官不可用期不能安排 ⭐ 新增（传入holidayConfig过滤节假日）
+            if (teacher.isUnavailableOnDate(examDate, holidayConfig)) {
                 continue;
             }
             
@@ -1661,17 +1699,191 @@ public class ExamScheduleService {
     }
     
     /**
-     * ✅ 验证并修复最终解的HC4约束：每名考官每天只能监考一名考生
-     * 如果发现违反，将重复分配的考官设置为null（让前端知道需要手动分配）
+     * ✅ 验证并修复最终解的HC3约束：考官执勤白班不能安排考试（行政班除外）
+     * 🔧 增强版：尝试智能重新分配考官，而不是简单地设为null
      * @return 修复的违反数量
      */
-    private int validateAndFixHC4ConstraintInFinalSolution(List<ExamAssignment> assignments) {
+    private int validateAndFixHC3ConstraintInFinalSolution(List<ExamAssignment> assignments, List<Teacher> allTeachers) {
+        LOGGER.info("🔍 [HC3最终验证] 开始验证最终解的HC3约束（白班限制）并尝试自动修复");
+        
+        int violationCount = 0;
+        int fixedCount = 0;
+        int reassignedCount = 0;
+        int nulledCount = 0;
+        
+        for (ExamAssignment assignment : assignments) {
+            String date = assignment.getExamDate();
+            if (date == null) continue;
+            
+            DutySchedule dutySchedule = new DutySchedule(date);
+            String dayShiftGroup = dutySchedule.getDayShift();
+            
+            // 检查考官1
+            if (assignment.getExaminer1() != null) {
+                Teacher examiner1 = assignment.getExaminer1();
+                if (!isAdminTeacher(examiner1) && 
+                    Objects.equals(examiner1.getGroup(), dayShiftGroup)) {
+                    violationCount++;
+                    LOGGER.severe("🚨 [HC3违反-最终解] 日期:" + date + ", 考官1:" + examiner1.getName() + 
+                                " (班组:" + examiner1.getGroup() + ") 当天执勤白班(" + dayShiftGroup + ")");
+                    
+                    // 尝试重新分配考官1
+                    Teacher replacement = findReplacementForHC3Violation(
+                        assignment, "考官1", allTeachers, dutySchedule
+                    );
+                    
+                    if (replacement != null) {
+                        assignment.setExaminer1(replacement);
+                        reassignedCount++;
+                        LOGGER.info("    ✅ 重新分配考官1: " + replacement.getName());
+                    } else {
+                        assignment.setExaminer1(null);
+                        nulledCount++;
+                        LOGGER.warning("    ⚠️ 无法找到替代考官1，设为null");
+                    }
+                    fixedCount++;
+                }
+            }
+            
+            // 检查考官2
+            if (assignment.getExaminer2() != null) {
+                Teacher examiner2 = assignment.getExaminer2();
+                if (!isAdminTeacher(examiner2) && 
+                    Objects.equals(examiner2.getGroup(), dayShiftGroup)) {
+                    violationCount++;
+                    LOGGER.severe("🚨 [HC3违反-最终解] 日期:" + date + ", 考官2:" + examiner2.getName() + 
+                                " (班组:" + examiner2.getGroup() + ") 当天执勤白班(" + dayShiftGroup + ")");
+                    
+                    // 尝试重新分配考官2
+                    Teacher replacement = findReplacementForHC3Violation(
+                        assignment, "考官2", allTeachers, dutySchedule
+                    );
+                    
+                    if (replacement != null) {
+                        assignment.setExaminer2(replacement);
+                        reassignedCount++;
+                        LOGGER.info("    ✅ 重新分配考官2: " + replacement.getName());
+                    } else {
+                        assignment.setExaminer2(null);
+                        nulledCount++;
+                        LOGGER.warning("    ⚠️ 无法找到替代考官2，设为null");
+                    }
+                    fixedCount++;
+                }
+            }
+            
+            // 检查备份考官
+            if (assignment.getBackupExaminer() != null) {
+                Teacher backup = assignment.getBackupExaminer();
+                if (!isAdminTeacher(backup) && 
+                    Objects.equals(backup.getGroup(), dayShiftGroup)) {
+                    violationCount++;
+                    LOGGER.severe("🚨 [HC3违反-最终解] 日期:" + date + ", 备份考官:" + backup.getName() + 
+                                " (班组:" + backup.getGroup() + ") 当天执勤白班(" + dayShiftGroup + ")");
+                    
+                    // 尝试重新分配备份考官
+                    Teacher replacement = findReplacementForHC3Violation(
+                        assignment, "备份", allTeachers, dutySchedule
+                    );
+                    
+                    if (replacement != null) {
+                        assignment.setBackupExaminer(replacement);
+                        reassignedCount++;
+                        LOGGER.info("    ✅ 重新分配备份考官: " + replacement.getName());
+                    } else {
+                        assignment.setBackupExaminer(null);
+                        nulledCount++;
+                        LOGGER.warning("    ⚠️ 无法找到替代备份考官，设为null");
+                    }
+                    fixedCount++;
+                }
+            }
+        }
+        
+        LOGGER.info("📊 [HC3最终验证] 完成: 发现 " + violationCount + " 个违反, 修复 " + fixedCount + 
+                   " 个 (重新分配:" + reassignedCount + ", 设为null:" + nulledCount + ")");
+        
+        return fixedCount;
+    }
+    
+    /**
+     * 🔧 为HC3违反（白班冲突）寻找替代考官
+     */
+    private Teacher findReplacementForHC3Violation(ExamAssignment assignment, String role, 
+                                                   List<Teacher> allTeachers, DutySchedule dutySchedule) {
+        Student student = assignment.getStudent();
+        String studentDept = student != null ? normalizeDepartment(student.getDepartment()) : "";
+        String date = dutySchedule.getDate();
+        
+        // 过滤可用考官
+        List<Teacher> candidates = new ArrayList<>();
+        
+        for (Teacher teacher : allTeachers) {
+            // 跳过当前已分配的考官
+            if (role.equals("考官1") && assignment.getExaminer1() != null && 
+                teacher.getId() == assignment.getExaminer1().getId()) continue;
+            if (role.equals("考官2") && assignment.getExaminer2() != null && 
+                teacher.getId() == assignment.getExaminer2().getId()) continue;
+            if (role.equals("备份") && assignment.getBackupExaminer() != null && 
+                teacher.getId() == assignment.getBackupExaminer().getId()) continue;
+            
+            // HC3检查：不能是白班执勤
+            if (!isTeacherAvailableOnDate(teacher, dutySchedule)) {
+                continue;
+            }
+            
+            String teacherDept = normalizeDepartment(teacher.getDepartment());
+            
+            // 根据角色检查科室约束
+            if (role.equals("考官1")) {
+                // 考官1必须与学员同科室
+                if (!isValidExaminer1Department(studentDept, teacherDept)) {
+                    continue;
+                }
+            } else if (role.equals("考官2")) {
+                // 考官2必须与学员不同科室
+                if (teacherDept.equals(studentDept)) continue;
+                // 不能与考官1同科室
+                if (assignment.getExaminer1() != null) {
+                    String examiner1Dept = normalizeDepartment(assignment.getExaminer1().getDepartment());
+                    if (teacherDept.equals(examiner1Dept)) continue;
+                }
+            } else if (role.equals("备份")) {
+                // 备份不能与考官1或考官2是同一人
+                if (assignment.getExaminer1() != null && teacher.getId() == assignment.getExaminer1().getId()) continue;
+                if (assignment.getExaminer2() != null && teacher.getId() == assignment.getExaminer2().getId()) continue;
+            }
+            
+            candidates.add(teacher);
+        }
+        
+        if (candidates.isEmpty()) {
+            return null;
+        }
+        
+        // 按优先级排序
+        candidates.sort((a, b) -> {
+            int priorityA = calculateTeacherPriorityForReplacement(a, date);
+            int priorityB = calculateTeacherPriorityForReplacement(b, date);
+            return Integer.compare(priorityB, priorityA); // 降序
+        });
+        
+        return candidates.get(0);
+    }
+    
+    /**
+     * ✅ 验证并修复最终解的HC4约束：每名考官每天只能监考一名考生
+     * 🔧 增强版：尝试智能重新分配考官，而不是简单地设为null
+     * @return 修复的违反数量
+     */
+    private int validateAndFixHC4ConstraintInFinalSolution(List<ExamAssignment> assignments, List<Teacher> allTeachers) {
         LOGGER.info("🔍 [HC4最终验证] 开始验证最终解的HC4约束并尝试自动修复");
         
         // Map<日期, Map<考官ID, List<assignment和角色>>>
         Map<String, Map<String, List<AssignmentRole>>> dailyExaminerAssignments = new HashMap<>();
         int violationCount = 0;
         int fixedCount = 0;
+        int reassignedCount = 0;
         
         // 第一遍：收集所有分配
         for (ExamAssignment assignment : assignments) {
@@ -1725,7 +1937,7 @@ public class ExamScheduleService {
                         LOGGER.severe("    - " + studentName + " 的 " + role.role);
                     }
                     
-                    // 🔧 修复策略：保留第一个分配，清空其他分配
+                    // 🔧 修复策略：保留第一个分配，尝试为其他分配重新分配考官
                     // 保留考官1的分配（最重要），其次是考官2，最后是备份
                     roles.sort((a, b) -> {
                         int priorityA = getRolePriority(a.role);
@@ -1737,27 +1949,51 @@ public class ExamScheduleService {
                     LOGGER.info("    ✅ 保留: " + (toKeep.assignment.getStudent() != null ? 
                                toKeep.assignment.getStudent().getName() : "未知") + " 的 " + toKeep.role);
                     
-                    // 清空其他分配
+                    // 为其他分配尝试重新分配考官
                     for (int i = 1; i < roles.size(); i++) {
-                        AssignmentRole toRemove = roles.get(i);
-                        ExamAssignment assignment = toRemove.assignment;
-                        String role = toRemove.role;
+                        AssignmentRole toFix = roles.get(i);
+                        ExamAssignment assignment = toFix.assignment;
+                        String role = toFix.role;
+                        Student student = assignment.getStudent();
                         
-                        switch (role) {
-                            case "考官1":
-                                assignment.setExaminer1(null);
-                                break;
-                            case "考官2":
-                                assignment.setExaminer2(null);
-                                break;
-                            case "备份":
-                                assignment.setBackupExaminer(null);
-                                break;
+                        // 🔧 尝试重新分配考官
+                        Teacher replacement = findReplacementExaminer(
+                            assignment, role, allTeachers, dailyExaminerAssignments, date
+                        );
+                        
+                        if (replacement != null) {
+                            // 成功找到替代考官
+                            switch (role) {
+                                case "考官1":
+                                    assignment.setExaminer1(replacement);
+                                    break;
+                                case "考官2":
+                                    assignment.setExaminer2(replacement);
+                                    break;
+                                case "备份":
+                                    assignment.setBackupExaminer(replacement);
+                                    break;
+                            }
+                            reassignedCount++;
+                            LOGGER.info("    ✅ 重新分配: " + (student != null ? student.getName() : "未知") + 
+                                       " 的 " + role + " -> " + replacement.getName());
+                        } else {
+                            // 无法找到替代考官，设为null
+                            switch (role) {
+                                case "考官1":
+                                    assignment.setExaminer1(null);
+                                    break;
+                                case "考官2":
+                                    assignment.setExaminer2(null);
+                                    break;
+                                case "备份":
+                                    assignment.setBackupExaminer(null);
+                                    break;
+                            }
+                            fixedCount++;
+                            LOGGER.warning("    🔧 已清空(无替代): " + (student != null ? 
+                                         student.getName() : "未知") + " 的 " + role);
                         }
-                        
-                        fixedCount++;
-                        LOGGER.warning("    🔧 已清空: " + (assignment.getStudent() != null ? 
-                                     assignment.getStudent().getName() : "未知") + " 的 " + role);
                     }
                 }
             }
@@ -1765,13 +2001,140 @@ public class ExamScheduleService {
         
         if (violationCount > 0) {
             LOGGER.severe("🚨 [HC4最终验证] 发现 " + violationCount + " 个HC4约束违反");
-            LOGGER.warning("⚠️ [HC4修复] 已清空 " + fixedCount + " 个重复的考官分配");
-            LOGGER.warning("⚠️ [用户提示] 这些学员的考官需要手动重新分配！");
+            if (reassignedCount > 0) {
+                LOGGER.info("✅ [HC4修复] 成功重新分配 " + reassignedCount + " 个考官");
+            }
+            if (fixedCount > 0) {
+                LOGGER.warning("⚠️ [HC4修复] 已清空 " + fixedCount + " 个无法替代的考官分配");
+                LOGGER.warning("⚠️ [用户提示] 这些学员的考官需要手动重新分配！");
+            }
         } else {
             LOGGER.info("✅ [HC4最终验证] 最终解满足HC4约束，没有考官重复分配");
         }
         
-        return fixedCount;
+        return fixedCount + reassignedCount;
+    }
+    
+    /**
+     * 🔧 为违反HC4的分配寻找替代考官
+     */
+    private Teacher findReplacementExaminer(ExamAssignment assignment, String role, 
+                                           List<Teacher> allTeachers,
+                                           Map<String, Map<String, List<AssignmentRole>>> dailyExaminerAssignments,
+                                           String date) {
+        if (assignment.getStudent() == null) return null;
+        
+        Student student = assignment.getStudent();
+        String studentDept = normalizeDepartment(student.getDepartment());
+        
+        // 获取当天已占用的考官
+        Set<String> occupiedExaminers = new HashSet<>();
+        Map<String, List<AssignmentRole>> dateMap = dailyExaminerAssignments.get(date);
+        if (dateMap != null) {
+            occupiedExaminers.addAll(dateMap.keySet());
+        }
+        
+        // 获取当前分配的其他考官（避免重复）
+        Set<String> currentExaminers = new HashSet<>();
+        if (assignment.getExaminer1() != null) {
+            currentExaminers.add(String.valueOf(assignment.getExaminer1().getId()));
+        }
+        if (assignment.getExaminer2() != null) {
+            currentExaminers.add(String.valueOf(assignment.getExaminer2().getId()));
+        }
+        if (assignment.getBackupExaminer() != null) {
+            currentExaminers.add(String.valueOf(assignment.getBackupExaminer().getId()));
+        }
+        
+        // 根据角色筛选合适的替代考官
+        List<Teacher> candidates = new ArrayList<>();
+        
+        for (Teacher teacher : allTeachers) {
+            String teacherId = String.valueOf(teacher.getId());
+            
+            // 跳过已占用的考官
+            if (occupiedExaminers.contains(teacherId)) continue;
+            
+            // 跳过当前已分配的考官（避免同一学员重复考官）
+            if (currentExaminers.contains(teacherId)) continue;
+            
+            String teacherDept = normalizeDepartment(teacher.getDepartment());
+            boolean isAdmin = isAdminTeacher(teacher);
+            boolean isDayShift = isDayShiftTeacher(teacher, date);
+            
+            // 根据角色检查约束
+            boolean isValid = false;
+            
+            switch (role) {
+                case "考官1":
+                    // 考官1必须与学员同科室（或三/七互通）
+                    isValid = isValidExaminer1Department(studentDept, teacherDept);
+                    // 不能是白班（行政班除外）
+                    if (isDayShift && !isAdmin) isValid = false;
+                    break;
+                    
+                case "考官2":
+                    // 考官2必须与学员不同科室
+                    isValid = !studentDept.equals(teacherDept);
+                    // 不能是白班（行政班除外）
+                    if (isDayShift && !isAdmin) isValid = false;
+                    break;
+                    
+                case "备份":
+                    // 备份考官约束较宽松
+                    isValid = true;
+                    // 不能是白班（行政班除外）
+                    if (isDayShift && !isAdmin) isValid = false;
+                    break;
+            }
+            
+            if (isValid) {
+                candidates.add(teacher);
+            }
+        }
+        
+        if (candidates.isEmpty()) {
+            return null;
+        }
+        
+        // 选择优先级最高的考官（晚班 > 休息第一天 > 休息第二天 > 其他）
+        candidates.sort((t1, t2) -> {
+            int p1 = calculateTeacherPriorityForReplacement(t1, date);
+            int p2 = calculateTeacherPriorityForReplacement(t2, date);
+            return Integer.compare(p2, p1); // 降序
+        });
+        
+        return candidates.get(0);
+    }
+    
+    /**
+     * 计算替代考官的优先级
+     */
+    private int calculateTeacherPriorityForReplacement(Teacher teacher, String date) {
+        int priority = 0;
+        
+        // 晚班最高优先级
+        if (isNightShiftTeacher(teacher, date)) {
+            priority += 100;
+        }
+        // 休息第一天次之
+        else if (isFirstRestDayTeacher(teacher, date)) {
+            priority += 80;
+        }
+        // 休息第二天再次
+        else if (isSecondRestDayTeacher(teacher, date)) {
+            priority += 60;
+        }
+        // 行政班
+        else if (isAdminTeacher(teacher)) {
+            priority += 40;
+        }
+        // 其他最低
+        else {
+            priority += 10;
+        }
+        
+        return priority;
     }
     
     /**
@@ -2035,10 +2398,28 @@ public class ExamScheduleService {
         // 使用去重后的列表
         assignments = deduplicatedAssignments;
         
+        // 🔧 **关键修复：确保所有assignment都有有效的考官分配**
+        LOGGER.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        LOGGER.info("🔍 [数据完整性检查] 检查并修复考官分配...");
+        int fixedCount = fixIncompleteAssignments(assignments, solution.getTeachers());
+        if (fixedCount > 0) {
+            LOGGER.warning("⚠️ [数据完整性] 修复了 " + fixedCount + " 个不完整的考官分配");
+        }
+        LOGGER.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        
+        // ✅ 关键：在返回前再次验证并尝试修复HC3约束违反（白班限制）
+        LOGGER.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        LOGGER.info("🔍 [最终验证] 对求解后的solution进行HC3约束（白班限制）最终验证和修复");
+        int hc3ViolationsFixed = validateAndFixHC3ConstraintInFinalSolution(assignments, solution.getTeachers());
+        if (hc3ViolationsFixed > 0) {
+            LOGGER.warning("⚠️ [最终验证] 修复了 " + hc3ViolationsFixed + " 个HC3约束（白班）违反");
+        }
+        LOGGER.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        
         // ✅ 关键：在返回前再次验证并尝试修复HC4约束违反
         LOGGER.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         LOGGER.info("🔍 [最终验证] 对求解后的solution进行HC4约束最终验证和修复");
-        int hc4ViolationsFixed = validateAndFixHC4ConstraintInFinalSolution(assignments);
+        int hc4ViolationsFixed = validateAndFixHC4ConstraintInFinalSolution(assignments, solution.getTeachers());
         if (hc4ViolationsFixed > 0) {
             LOGGER.warning("⚠️ [最终验证] 修复了 " + hc4ViolationsFixed + " 个HC4约束违反");
         }
@@ -2205,19 +2586,76 @@ public class ExamScheduleService {
             response.setSuccess(false);
         }
         
+        // 🔧 🆕 新增：全面验证其他硬约束（HC1, HC3, HC4, HC6, HC7, HC8, HC8b, HC9, HC10）
+        LOGGER.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        LOGGER.info("🔍 [全面约束验证] 开始验证其他硬约束...");
+        
+        // HC1验证：法定节假日不能安排考试
+        int hc1ViolationCount = validateHC1Constraint(assignments);
+        
+        // HC3验证：考官执勤白班不能安排考试
+        int hc3ViolationCount = validateHC3Constraint(assignments);
+        
+        // HC4验证：每名考官每天只能监考一名考生
+        int hc4ViolationCount = validateHC4ConstraintForStats(assignments);
+        
+        // HC6验证：考生需要在连续两天完成考试
+        int hc6ViolationCount = validateHC6Constraint(assignments);
+        
+        // HC7验证：必须有考官1和考官2两名考官，且不能同科室
+        int hc7ViolationCount = validateHC7Constraint(assignments);
+        
+        // HC8验证：备份考官不能与考官1和考官2是同一人
+        int hc8ViolationCount = validateHC8Constraint(assignments);
+        
+        // HC8b验证：备份考官不能与考官1和考官2同科室
+        int hc8bViolationCount = validateHC8bConstraint(assignments);
+        
+        // HC9验证：考官不可用期不能安排考试
+        int hc9ViolationCount = validateHC9Constraint(assignments);
+        
+        // HC10验证：固定的排班不能改变（仅当存在固定排班时）
+        int hc10ViolationCount = validateHC10Constraint(assignments);
+        
+        // 汇总所有约束违反
+        int totalHardConstraintViolations = hc1ViolationCount + hc2ViolationCount + 
+                                           hc3ViolationCount + hc4ViolationCount + hc6ViolationCount + 
+                                           hc7ViolationCount + hc8ViolationCount + hc8bViolationCount + 
+                                           hc9ViolationCount + hc10ViolationCount;
+        
+        LOGGER.info("📊 [全面约束验证结果] 总违反数: " + totalHardConstraintViolations);
+        LOGGER.info("   HC1(节假日): " + hc1ViolationCount);
+        LOGGER.info("   HC2(科室): " + hc2ViolationCount);
+        LOGGER.info("   HC3(白班): " + hc3ViolationCount);
+        LOGGER.info("   HC4(考官每天一场): " + hc4ViolationCount);
+        LOGGER.info("   HC6(连续): " + hc6ViolationCount);
+        LOGGER.info("   HC7(两名考官): " + hc7ViolationCount);
+        LOGGER.info("   HC8(备份不重复): " + hc8ViolationCount);
+        LOGGER.info("   HC8b(备份不同科室): " + hc8bViolationCount);
+        LOGGER.info("   HC9(不可用期): " + hc9ViolationCount);
+        LOGGER.info("   HC10(固定排班): " + hc10ViolationCount);
+        
+        if (totalHardConstraintViolations > 0) {
+            LOGGER.severe("🚨🚨🚨 [全面约束验证失败] 发现 " + totalHardConstraintViolations + " 个硬约束违反！");
+            response.setSuccess(false);
+        } else {
+            LOGGER.info("✅ [全面约束验证通过] 所有硬约束都已满足");
+        }
+        LOGGER.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        
         // 🔧 修复：使用实际的约束违反数量，而不是得分的绝对值
         // 设置得分信息
         if (solution.getScore() != null) {
             HardSoftScore score = solution.getScore();
             statistics.setFinalScore(score);
             
-            // ✅ 使用实际验证得到的违反数量（目前只有HC2验证，后续可扩展其他约束）
+            // ✅ 使用实际验证得到的违反数量（现在包括所有硬约束）
             // 注意：hardScore是得分（带权重），不是违反数量！
             // 例如：21个违反 × 权重(-4) = -84分
-            statistics.setHardConstraintViolations(hc2ViolationCount);
+            statistics.setHardConstraintViolations(totalHardConstraintViolations);
             statistics.setSoftConstraintsScore(score.softScore());
             
-            LOGGER.info("📊 [统计信息] 硬约束违反数: " + hc2ViolationCount + " (得分: " + score.hardScore() + ")");
+            LOGGER.info("📊 [统计信息] 硬约束违反数: " + totalHardConstraintViolations + " (得分: " + score.hardScore() + ")");
         }
         
         response.setStatistics(statistics);
@@ -2225,9 +2663,14 @@ public class ExamScheduleService {
         // 设置消息
         if (solution.getScore() != null) {
             HardSoftScore score = solution.getScore();
-            if (score.hardScore() < 0 || hc2ViolationCount > 0) {
+            if (score.hardScore() < 0 || totalHardConstraintViolations > 0) {
                 response.setSuccess(false);
-                response.setMessage("排班完成，但存在硬约束违规 (HC2考官1科室不匹配: " + hc2ViolationCount + "个, 硬约束得分: " + score.hardScore() + ")");
+                response.setMessage("排班完成，但存在 " + totalHardConstraintViolations + " 个硬约束违反 (HC1:" + hc1ViolationCount + 
+                    ", HC2:" + hc2ViolationCount + ", HC3:" + hc3ViolationCount + ", HC4:" + hc4ViolationCount +
+                    ", HC6:" + hc6ViolationCount + ", HC7:" + hc7ViolationCount + 
+                    ", HC8:" + hc8ViolationCount + ", HC8b:" + hc8bViolationCount +
+                    ", HC9:" + hc9ViolationCount + ", HC10:" + hc10ViolationCount +
+                    ", 硬约束得分: " + score.hardScore() + ")");
             } else {
                 response.setMessage("排班成功完成 (得分: " + score + ")");
             }
@@ -2237,8 +2680,54 @@ public class ExamScheduleService {
         
         LOGGER.info("构建响应完成: 总分配=" + assignments.size() + 
                    ", 完整分配=" + completeAssignments + 
-                   ", 硬约束违反=" + hc2ViolationCount +
+                   ", 硬约束违反=" + totalHardConstraintViolations +
                    ", 得分=" + solution.getScore());
+        
+        // 🆕 生成智能指导信息（如果存在未分配或约束违反）
+        if (incompleteIndex > 1 || totalHardConstraintViolations > 0) {
+            try {
+                LOGGER.info("📋 [指导信息] 检测到排班问题，生成指导信息...");
+                
+                // 获取当前日期范围（从solution或assignments中推断）
+                String startDate = null;
+                String endDate = null;
+                if (!assignments.isEmpty()) {
+                    List<String> dates = assignments.stream()
+                        .map(ExamAssignment::getExamDate)
+                        .filter(d -> d != null)
+                        .sorted()
+                        .distinct()
+                        .collect(java.util.stream.Collectors.toList());
+                    if (!dates.isEmpty()) {
+                        startDate = dates.get(0);
+                        endDate = dates.get(dates.size() - 1);
+                    }
+                }
+                
+                if (startDate == null) {
+                    startDate = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE);
+                    endDate = LocalDate.now().plusDays(14).format(DateTimeFormatter.ISO_LOCAL_DATE);
+                }
+                
+                com.examiner.scheduler.dto.SchedulingGuidanceDTO guidance = 
+                    guidanceService.generateGuidance(
+                        assignments,
+                        solution.getStudents(),
+                        solution.getTeachers(),
+                        startDate,
+                        endDate,
+                        response
+                    );
+                
+                if (guidance.isHasIssue()) {
+                    response.setGuidance(guidance);
+                    response.setShowGuidance(true);
+                    LOGGER.info("✅ [指导信息] 已生成并添加到响应中");
+                }
+            } catch (Exception e) {
+                LOGGER.warning("⚠️ [指导信息] 生成失败（不影响排班结果）: " + e.getMessage());
+            }
+        }
         
         return response;
     }
@@ -2332,7 +2821,7 @@ public class ExamScheduleService {
             }
             sameDeptMatch++;
 
-            if (t.isUnavailableOnDate(examDate)) {
+            if (t.isUnavailableOnDate(examDate, holidayConfig)) {
                 excludedUnavailable++;
                 continue;
             }
@@ -2376,7 +2865,7 @@ public class ExamScheduleService {
         if (teacher == null || dutySchedule == null) {
             return false;
         }
-        if (teacher.isUnavailableOnDate(dutySchedule.getDate())) {
+        if (teacher.isUnavailableOnDate(dutySchedule.getDate(), holidayConfig)) {
             return false;
         }
         String teacherGroup = teacher.getGroup();
@@ -2433,6 +2922,127 @@ public class ExamScheduleService {
         
         // 默认要求两名主考官
         return assignment.getExaminer1() != null && assignment.getExaminer2() != null;
+    }
+    
+    /**
+     * 🔧 修复不完整的考官分配
+     * 为examiner1或examiner2为null的assignment分配可用的考官
+     * 这是为了解决前端显示"算法未分配"的问题
+     */
+    private int fixIncompleteAssignments(List<ExamAssignment> assignments, List<Teacher> teachers) {
+        int fixedCount = 0;
+        
+        for (ExamAssignment assignment : assignments) {
+            boolean needsFix = false;
+            String examDate = assignment.getExamDate();
+            Student student = assignment.getStudent();
+            
+            if (student == null || examDate == null) {
+                continue; // 无法修复缺少学员或日期的assignment
+            }
+            
+            // 检查并修复考官1
+            if (assignment.getExaminer1() == null) {
+                LOGGER.warning("⚠️ [修复] 学员 " + student.getName() + " 的考官1为null，尝试分配...");
+                Teacher examiner1 = findBestExaminerForStudent(student, examDate, teachers, assignment, true);
+                if (examiner1 != null) {
+                    assignment.setExaminer1(examiner1);
+                    LOGGER.info("✅ [修复] 为学员 " + student.getName() + " 分配了考官1: " + examiner1.getName());
+                    needsFix = true;
+                } else {
+                    LOGGER.severe("❌ [修复失败] 无法为学员 " + student.getName() + " 找到合适的考官1");
+                }
+            }
+            
+            // 检查并修复考官2
+            if (assignment.getExaminer2() == null) {
+                LOGGER.warning("⚠️ [修复] 学员 " + student.getName() + " 的考官2为null，尝试分配...");
+                Teacher examiner2 = findBestExaminerForStudent(student, examDate, teachers, assignment, false);
+                if (examiner2 != null) {
+                    assignment.setExaminer2(examiner2);
+                    LOGGER.info("✅ [修复] 为学员 " + student.getName() + " 分配了考官2: " + examiner2.getName());
+                    needsFix = true;
+                } else {
+                    LOGGER.severe("❌ [修复失败] 无法为学员 " + student.getName() + " 找到合适的考官2");
+                }
+            }
+            
+            if (needsFix) {
+                fixedCount++;
+            }
+        }
+        
+        return fixedCount;
+    }
+    
+    /**
+     * 为学员寻找最佳考官
+     * @param isExaminer1 true表示寻找考官1（同科室），false表示寻找考官2（不同科室）
+     */
+    private Teacher findBestExaminerForStudent(Student student, String examDate, 
+                                                List<Teacher> teachers, 
+                                                ExamAssignment currentAssignment,
+                                                boolean isExaminer1) {
+        String studentDept = normalizeDepartment(student.getDepartment());
+        Teacher assignedExaminer1 = currentAssignment.getExaminer1();
+        
+        for (Teacher teacher : teachers) {
+            String teacherDept = normalizeDepartment(teacher.getDepartment());
+            
+            // 检查科室条件
+            if (isExaminer1) {
+                // 考官1必须与学员同科室
+                if (!isValidExaminer1Department(studentDept, teacherDept)) {
+                    continue;
+                }
+            } else {
+                // 考官2必须与学员不同科室
+                if (studentDept.equals(teacherDept)) {
+                    continue;
+                }
+                // 考官2还必须与考官1不同科室
+                if (assignedExaminer1 != null) {
+                    String examiner1Dept = normalizeDepartment(assignedExaminer1.getDepartment());
+                    if (examiner1Dept.equals(teacherDept)) {
+                        continue;
+                    }
+                }
+            }
+            
+            // 检查考官是否可用（不在不可用期，且当天未被分配）
+            if (teacher.isUnavailableOnDate(examDate, holidayConfig)) {
+                continue;
+            }
+            
+            // 检查是否是行政班考官（周末不能考试）
+            try {
+                LocalDate date = LocalDate.parse(examDate);
+                int dayOfWeek = date.getDayOfWeek().getValue();
+                if ((dayOfWeek == 6 || dayOfWeek == 7) && isAdminTeacher(teacher)) {
+                    continue; // 周末行政班考官不可用
+                }
+            } catch (Exception e) {
+                // 日期解析失败，跳过周末检查
+            }
+            
+            // 找到合适的考官
+            return teacher;
+        }
+        
+        return null; // 未找到合适的考官
+    }
+    
+    /**
+     * 检查是否是行政班考官
+     * 特征：group = "行政班" 或 "无" 或为空值
+     */
+    private boolean isAdminTeacher(Teacher teacher) {
+        if (teacher == null) {
+            return false;
+        }
+        String group = teacher.getGroup();
+        // 同时支持前端的"行政班"和后端的"无"
+        return group == null || "无".equals(group) || "行政班".equals(group) || group.trim().isEmpty();
     }
     
     /**
@@ -2584,10 +3194,11 @@ public class ExamScheduleService {
     
     /**
      * 🔧 新增：判断考官在指定日期是否可用（非白班执勤且非行政班限制）
+     * 🔧 修复：节假日不检查不可用期（节假日由HC1约束单独处理，避免逻辑冗余）
      */
     private boolean isTeacherAvailableOnDate(Teacher teacher, DutySchedule dutySchedule) {
-        // 🆕 HC9检查：首先检查考官在该日期是否在不可用期内
-        if (teacher.isUnavailableOnDate(dutySchedule.getDate())) {
+        // 🆕 HC9检查：首先检查考官在该日期是否在不可用期内（传入holidayConfig过滤节假日）
+        if (teacher.isUnavailableOnDate(dutySchedule.getDate(), holidayConfig)) {
             String reason = teacher.getUnavailableReason(dutySchedule.getDate());
             LOGGER.warning("❌ [HC9] 考官 " + teacher.getName() + " 在 " + dutySchedule.getDate() + 
                          " 不可用 (原因: " + (reason != null ? reason : "未说明") + ")");
@@ -2642,5 +3253,456 @@ public class ExamScheduleService {
         }
         
         return 10; // 其他情况（白班或未知）
+    }
+    
+    /**
+     * 🔧 辅助方法：判断考官在指定日期是否白班
+     */
+    private boolean isDayShiftTeacher(Teacher teacher, String date) {
+        if (teacher == null || date == null) return false;
+        
+        String group = teacher.getGroup();
+        if (group == null || "无".equals(group) || "行政班".equals(group) || group.trim().isEmpty()) {
+            return false; // 行政班不算白班
+        }
+        
+        try {
+            DutySchedule dutySchedule = new DutySchedule(date);
+            return dutySchedule.isGroupOnDayShift(group);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    
+    /**
+     * 🔧 辅助方法：判断考官在指定日期是否晚班
+     */
+    private boolean isNightShiftTeacher(Teacher teacher, String date) {
+        if (teacher == null || date == null) return false;
+        
+        String group = teacher.getGroup();
+        if (group == null || "无".equals(group) || "行政班".equals(group) || group.trim().isEmpty()) {
+            return false; // 行政班不算晚班
+        }
+        
+        try {
+            DutySchedule dutySchedule = new DutySchedule(date);
+            return dutySchedule.isGroupOnNightShift(group);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    
+    /**
+     * 🔧 辅助方法：判断考官在指定日期是否休息第一天
+     */
+    private boolean isFirstRestDayTeacher(Teacher teacher, String date) {
+        if (teacher == null || date == null) return false;
+        
+        String group = teacher.getGroup();
+        if (group == null || "无".equals(group) || "行政班".equals(group) || group.trim().isEmpty()) {
+            return false;
+        }
+        
+        try {
+            DutySchedule dutySchedule = new DutySchedule(date);
+            java.util.List<String> restGroups = dutySchedule.getRestGroups();
+            return restGroups != null && restGroups.size() >= 1 && restGroups.get(0).equals(group);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    
+    /**
+     * 🔧 辅助方法：判断考官在指定日期是否休息第二天
+     */
+    private boolean isSecondRestDayTeacher(Teacher teacher, String date) {
+        if (teacher == null || date == null) return false;
+        
+        String group = teacher.getGroup();
+        if (group == null || "无".equals(group) || "行政班".equals(group) || group.trim().isEmpty()) {
+            return false;
+        }
+        
+        try {
+            DutySchedule dutySchedule = new DutySchedule(date);
+            java.util.List<String> restGroups = dutySchedule.getRestGroups();
+            return restGroups != null && restGroups.size() >= 2 && restGroups.get(1).equals(group);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    
+    // ==================== 🆕 新增：全面硬约束验证方法 ====================
+    
+    /**
+     * ✅ HC1验证：法定节假日不能安排考试
+     * @param assignments 分配结果
+     * @return 违反数量
+     */
+    private int validateHC1Constraint(List<ExamAssignment> assignments) {
+        int violationCount = 0;
+        
+        for (ExamAssignment assignment : assignments) {
+            if (assignment.getExamDate() == null) continue;
+            
+            try {
+                LocalDate date = LocalDate.parse(assignment.getExamDate());
+                if (holidayConfig.isHoliday(date)) {
+                    violationCount++;
+                    LOGGER.severe("🚨 [HC1违反] 节假日安排了考试: " + assignment.getExamDate() + 
+                        " 学员: " + (assignment.getStudent() != null ? assignment.getStudent().getName() : "未知"));
+                }
+            } catch (Exception e) {
+                LOGGER.warning("⚠️ [HC1验证] 日期解析失败: " + assignment.getExamDate());
+            }
+        }
+        
+        return violationCount;
+    }
+    
+    /**
+     * ✅ HC3验证：考官执勤白班不能安排考试
+     * @param assignments 分配结果
+     * @return 违反数量
+     */
+    private int validateHC3Constraint(List<ExamAssignment> assignments) {
+        int violationCount = 0;
+        
+        for (ExamAssignment assignment : assignments) {
+            String examDate = assignment.getExamDate();
+            if (examDate == null) continue;
+            
+            try {
+                DutySchedule dutySchedule = DutySchedule.forDate(examDate);
+                String dayShiftGroup = dutySchedule.getDayShift();
+                
+                // 检查考官1（非行政班）
+                if (assignment.getExaminer1() != null && 
+                    !isAdminTeacher(assignment.getExaminer1()) &&
+                    dayShiftGroup.equals(assignment.getExaminer1().getGroup())) {
+                    violationCount++;
+                    LOGGER.severe("🚨 [HC3违反] 考官1 " + assignment.getExaminer1().getName() + 
+                        " 在白班执勤日被安排考试: " + examDate);
+                }
+                
+                // 检查考官2（非行政班）
+                if (assignment.getExaminer2() != null && 
+                    !isAdminTeacher(assignment.getExaminer2()) &&
+                    dayShiftGroup.equals(assignment.getExaminer2().getGroup())) {
+                    violationCount++;
+                    LOGGER.severe("🚨 [HC3违反] 考官2 " + assignment.getExaminer2().getName() + 
+                        " 在白班执勤日被安排考试: " + examDate);
+                }
+                
+                // 检查备份考官（非行政班）
+                if (assignment.getBackupExaminer() != null && 
+                    !isAdminTeacher(assignment.getBackupExaminer()) &&
+                    dayShiftGroup.equals(assignment.getBackupExaminer().getGroup())) {
+                    violationCount++;
+                    LOGGER.severe("🚨 [HC3违反] 备份考官 " + assignment.getBackupExaminer().getName() + 
+                        " 在白班执勤日被安排考试: " + examDate);
+                }
+            } catch (Exception e) {
+                LOGGER.warning("⚠️ [HC3验证] 检查失败: " + e.getMessage());
+            }
+        }
+        
+        return violationCount;
+    }
+    
+    /**
+     * ✅ HC6验证：考生需要在连续两天完成考试
+     * @param assignments 分配结果
+     * @return 违反数量
+     */
+    private int validateHC6Constraint(List<ExamAssignment> assignments) {
+        int violationCount = 0;
+        
+        // 按学员分组
+        Map<Student, List<ExamAssignment>> studentAssignments = new HashMap<>();
+        for (ExamAssignment assignment : assignments) {
+            if (assignment.getStudent() != null) {
+                studentAssignments.computeIfAbsent(assignment.getStudent(), k -> new ArrayList<>()).add(assignment);
+            }
+        }
+        
+        for (Map.Entry<Student, List<ExamAssignment>> entry : studentAssignments.entrySet()) {
+            List<ExamAssignment> studentExams = entry.getValue();
+            
+            // 只检查有两天考试的学员
+            if (studentExams.size() == 2) {
+                try {
+                    LocalDate day1 = LocalDate.parse(studentExams.get(0).getExamDate());
+                    LocalDate day2 = LocalDate.parse(studentExams.get(1).getExamDate());
+                    long daysBetween = Math.abs(ChronoUnit.DAYS.between(day1, day2));
+                    
+                    if (daysBetween != 1) {
+                        violationCount++;
+                        LOGGER.severe("🚨 [HC6违反] 学员 " + entry.getKey().getName() + 
+                            " 两天考试不连续: " + day1 + " 和 " + day2 + " (间隔" + daysBetween + "天)");
+                    }
+                } catch (Exception e) {
+                    LOGGER.warning("⚠️ [HC6验证] 日期解析失败: " + e.getMessage());
+                }
+            }
+        }
+        
+        return violationCount;
+    }
+    
+    /**
+     * ✅ HC7验证：必须有考官1和考官2两名考官，且不能同科室
+     * @param assignments 分配结果
+     * @return 违反数量
+     */
+    private int validateHC7Constraint(List<ExamAssignment> assignments) {
+        int violationCount = 0;
+        
+        for (ExamAssignment assignment : assignments) {
+            // 检查是否缺少考官
+            if (assignment.getExaminer1() == null || assignment.getExaminer2() == null) {
+                violationCount++;
+                LOGGER.severe("🚨 [HC7违反] 缺少考官: " + 
+                    (assignment.getStudent() != null ? assignment.getStudent().getName() : "未知") +
+                    " 考官1=" + (assignment.getExaminer1() != null ? assignment.getExaminer1().getName() : "NULL") +
+                    " 考官2=" + (assignment.getExaminer2() != null ? assignment.getExaminer2().getName() : "NULL"));
+                continue;
+            }
+            
+            // 检查两名考官是否同科室
+            String examiner1Dept = normalizeDepartment(assignment.getExaminer1().getDepartment());
+            String examiner2Dept = normalizeDepartment(assignment.getExaminer2().getDepartment());
+            
+            if (examiner1Dept.equals(examiner2Dept)) {
+                violationCount++;
+                LOGGER.severe("🚨 [HC7违反] 两名考官同科室: " + 
+                    assignment.getExaminer1().getName() + "(" + examiner1Dept + ") 和 " +
+                    assignment.getExaminer2().getName() + "(" + examiner2Dept + ")");
+            }
+        }
+        
+        return violationCount;
+    }
+    
+    /**
+     * ✅ HC8验证：备份考官不能与考官1和考官2是同一人
+     * @param assignments 分配结果
+     * @return 违反数量
+     */
+    private int validateHC8Constraint(List<ExamAssignment> assignments) {
+        int violationCount = 0;
+        
+        for (ExamAssignment assignment : assignments) {
+            if (assignment.getBackupExaminer() == null) continue;
+            
+            String backupId = assignment.getBackupExaminer().getId();
+            
+            // 检查备份考官是否与考官1是同一人
+            if (assignment.getExaminer1() != null && 
+                backupId.equals(assignment.getExaminer1().getId())) {
+                violationCount++;
+                LOGGER.severe("🚨 [HC8违反] 备份考官与考官1是同一人: " + 
+                    assignment.getBackupExaminer().getName());
+            }
+            
+            // 检查备份考官是否与考官2是同一人
+            if (assignment.getExaminer2() != null && 
+                backupId.equals(assignment.getExaminer2().getId())) {
+                violationCount++;
+                LOGGER.severe("🚨 [HC8违反] 备份考官与考官2是同一人: " + 
+                    assignment.getBackupExaminer().getName());
+            }
+        }
+        
+        return violationCount;
+    }
+    
+    /**
+     * ✅ HC9验证：考官不可用期不能安排考试
+     * @param assignments 分配结果
+     * @return 违反数量
+     */
+    private int validateHC9Constraint(List<ExamAssignment> assignments) {
+        int violationCount = 0;
+        
+        for (ExamAssignment assignment : assignments) {
+            String examDate = assignment.getExamDate();
+            if (examDate == null) continue;
+            
+            // 检查考官1
+            if (assignment.getExaminer1() != null && 
+                assignment.getExaminer1().isUnavailableOnDate(examDate, holidayConfig)) {
+                violationCount++;
+                LOGGER.severe("🚨 [HC9违反] 考官1 " + assignment.getExaminer1().getName() + 
+                    " 在不可用期被安排考试: " + examDate);
+            }
+            
+            // 检查考官2
+            if (assignment.getExaminer2() != null && 
+                assignment.getExaminer2().isUnavailableOnDate(examDate, holidayConfig)) {
+                violationCount++;
+                LOGGER.severe("🚨 [HC9违反] 考官2 " + assignment.getExaminer2().getName() + 
+                    " 在不可用期被安排考试: " + examDate);
+            }
+            
+            // 检查备份考官
+            if (assignment.getBackupExaminer() != null && 
+                assignment.getBackupExaminer().isUnavailableOnDate(examDate, holidayConfig)) {
+                violationCount++;
+                LOGGER.severe("🚨 [HC9违反] 备份考官 " + assignment.getBackupExaminer().getName() + 
+                    " 在不可用期被安排考试: " + examDate);
+            }
+        }
+        
+        return violationCount;
+    }
+    
+    /**
+     * ✅ HC4验证：每名考官每天只能监考一名考生（用于统计）
+     * @param assignments 分配结果
+     * @return 违反数量
+     */
+    private int validateHC4ConstraintForStats(List<ExamAssignment> assignments) {
+        int violationCount = 0;
+        Map<String, Set<String>> examinerDateMap = new HashMap<>();
+        
+        for (ExamAssignment assignment : assignments) {
+            String examDate = assignment.getExamDate();
+            if (examDate == null) continue;
+            
+            // 检查考官1
+            if (assignment.getExaminer1() != null) {
+                String key = assignment.getExaminer1().getName() + "@" + examDate;
+                if (examinerDateMap.containsKey(key)) {
+                    violationCount++;
+                    LOGGER.severe("🚨 [HC4违反] 考官1 " + assignment.getExaminer1().getName() + 
+                        " 在 " + examDate + " 被安排多场考试");
+                } else {
+                    examinerDateMap.put(key, new HashSet<>());
+                }
+            }
+            
+            // 检查考官2
+            if (assignment.getExaminer2() != null) {
+                String key = assignment.getExaminer2().getName() + "@" + examDate;
+                if (examinerDateMap.containsKey(key)) {
+                    violationCount++;
+                    LOGGER.severe("🚨 [HC4违反] 考官2 " + assignment.getExaminer2().getName() + 
+                        " 在 " + examDate + " 被安排多场考试");
+                } else {
+                    examinerDateMap.put(key, new HashSet<>());
+                }
+            }
+            
+            // 检查备份考官
+            if (assignment.getBackupExaminer() != null) {
+                String key = assignment.getBackupExaminer().getName() + "@" + examDate;
+                if (examinerDateMap.containsKey(key)) {
+                    violationCount++;
+                    LOGGER.severe("🚨 [HC4违反] 备份考官 " + assignment.getBackupExaminer().getName() + 
+                        " 在 " + examDate + " 被安排多场考试");
+                } else {
+                    examinerDateMap.put(key, new HashSet<>());
+                }
+            }
+        }
+        
+        return violationCount;
+    }
+    
+    /**
+     * ✅ HC8b验证：备份考官不能与考官1和考官2同科室
+     * @param assignments 分配结果
+     * @return 违反数量
+     */
+    private int validateHC8bConstraint(List<ExamAssignment> assignments) {
+        int violationCount = 0;
+        
+        for (ExamAssignment assignment : assignments) {
+            if (assignment.getBackupExaminer() == null) continue;
+            
+            String backupDept = assignment.getBackupExaminer().getDepartment();
+            
+            // 检查与考官1是否同科室
+            if (assignment.getExaminer1() != null) {
+                String examiner1Dept = assignment.getExaminer1().getDepartment();
+                if (backupDept != null && backupDept.equals(examiner1Dept)) {
+                    violationCount++;
+                    LOGGER.severe("🚨 [HC8b违反] 备份考官 " + assignment.getBackupExaminer().getName() + 
+                        " (科室:" + backupDept + ") 与考官1 " + assignment.getExaminer1().getName() + 
+                        " (科室:" + examiner1Dept + ") 同科室");
+                }
+            }
+            
+            // 检查与考官2是否同科室
+            if (assignment.getExaminer2() != null) {
+                String examiner2Dept = assignment.getExaminer2().getDepartment();
+                if (backupDept != null && backupDept.equals(examiner2Dept)) {
+                    violationCount++;
+                    LOGGER.severe("🚨 [HC8b违反] 备份考官 " + assignment.getBackupExaminer().getName() + 
+                        " (科室:" + backupDept + ") 与考官2 " + assignment.getExaminer2().getName() + 
+                        " (科室:" + examiner2Dept + ") 同科室");
+                }
+            }
+        }
+        
+        return violationCount;
+    }
+    
+    /**
+     * ✅ HC10验证：固定的排班不能改变
+     * @param assignments 分配结果
+     * @return 违反数量
+     */
+    private int validateHC10Constraint(List<ExamAssignment> assignments) {
+        int violationCount = 0;
+        
+        for (ExamAssignment assignment : assignments) {
+            // 跳过非固定排班
+            if (!assignment.isPinned()) continue;
+            
+            // 检查考官1是否改变
+            if (assignment.getOriginalExaminer1Name() != null && 
+                assignment.getExaminer1() != null &&
+                !assignment.getOriginalExaminer1Name().equals(assignment.getExaminer1().getName())) {
+                violationCount++;
+                LOGGER.severe("🚨 [HC10违反] 固定排班考官1改变: " + assignment.getStudentName() + 
+                    " 原始=" + assignment.getOriginalExaminer1Name() + 
+                    " 当前=" + assignment.getExaminer1().getName());
+            }
+            
+            // 检查考官2是否改变
+            if (assignment.getOriginalExaminer2Name() != null && 
+                assignment.getExaminer2() != null &&
+                !assignment.getOriginalExaminer2Name().equals(assignment.getExaminer2().getName())) {
+                violationCount++;
+                LOGGER.severe("🚨 [HC10违反] 固定排班考官2改变: " + assignment.getStudentName() + 
+                    " 原始=" + assignment.getOriginalExaminer2Name() + 
+                    " 当前=" + assignment.getExaminer2().getName());
+            }
+            
+            // 检查备份考官是否改变
+            if (assignment.getOriginalBackupExaminerName() != null && 
+                assignment.getBackupExaminer() != null &&
+                !assignment.getOriginalBackupExaminerName().equals(assignment.getBackupExaminer().getName())) {
+                violationCount++;
+                LOGGER.severe("🚨 [HC10违反] 固定排班备份考官改变: " + assignment.getStudentName() + 
+                    " 原始=" + assignment.getOriginalBackupExaminerName() + 
+                    " 当前=" + assignment.getBackupExaminer().getName());
+            }
+            
+            // 检查考试日期是否改变
+            if (assignment.getOriginalExamDate() != null && 
+                assignment.getExamDate() != null &&
+                !assignment.getOriginalExamDate().equals(assignment.getExamDate())) {
+                violationCount++;
+                LOGGER.severe("🚨 [HC10违反] 固定排班考试日期改变: " + assignment.getStudentName() + 
+                    " 原始=" + assignment.getOriginalExamDate() + 
+                    " 当前=" + assignment.getExamDate());
+            }
+        }
+        
+        return violationCount;
     }
 }

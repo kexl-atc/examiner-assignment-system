@@ -2,14 +2,14 @@
 chcp 65001 >nul 2>&1
 if %errorlevel% neq 0 chcp 936 >nul
 setlocal enabledelayedexpansion
-title Update Win7 Deployment Package v8.0.1
+title Update Win7 Deployment Package v8.0.15
 color 0B
 
 echo.
 echo ============================================================
 echo   Update Win7-Offline-Package Deployment Package
-echo   Version: v8.0.1 (Enterprise Refactor)
-echo   Date: 2025-01-30
+echo   Version: v8.0.15 (Enterprise Refactor)
+echo   Date: 2025-02-05
 echo ============================================================
 echo.
 echo [Enterprise Refactor Features]
@@ -37,7 +37,7 @@ if exist "%ROOT_DIR%\package.json" (
     set "VERSION_RAW=!VERSION_RAW: =!"
     set "VERSION=v!VERSION_RAW!"
 ) else (
-    set "VERSION=v8.0.1"
+    set "VERSION=v8.0.15"
 )
 
 echo [INFO] Detected version: %VERSION%
@@ -317,7 +317,7 @@ echo   Version: %VERSION% (Enterprise Refactor)
 echo   Build Time: %date% %time%
 echo.
 echo ================================================
-echo   Enterprise Refactor Features (v8.0.1)
+echo   Enterprise Refactor Features (v8.0.15)
 echo ================================================
 echo.
 echo [异步求解架构]
@@ -470,7 +470,7 @@ echo   Creating 启动服务-Win7完整版.bat...
 (
 echo @echo off
 rem ================================================
-rem   Win7 SP1 Complete Version v8.0.1
+rem   Win7 SP1 Complete Version v8.0.15
 echo   Enterprise Refactor Edition
 echo   Features: Async Solver, Enterprise Cache, Metrics API
 echo rem ================================================
@@ -480,12 +480,12 @@ echo chcp 65001 ^>nul 2^>^&1
 rem if %%errorlevel%% neq 0 chcp 936 ^>nul 2^>^&1
 echo 
 rem setlocal
-echo title 考官排班系统 - Win7完整版 v8.0.1
+echo title 考官排班系统 - Win7完整版 v8.0.15
 echo color 0B
 echo 
 rem echo.
 echo echo ================================================
-rem echo   考官排班系统 - Win7完整版 v8.0.1
+rem echo   考官排班系统 - Win7完整版 v8.0.15
 echo echo   企业级重构版本
 echo echo ================================================
 echo 

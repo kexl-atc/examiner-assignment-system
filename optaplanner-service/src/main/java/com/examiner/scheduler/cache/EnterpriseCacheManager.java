@@ -75,7 +75,6 @@ public class EnterpriseCacheManager {
     /**
      * 获取或计算值
      */
-    @SuppressWarnings("unchecked")
     public <T> T getOrCompute(String key, CacheLoader<T> loader) {
         return getOrCompute(key, loader, DEFAULT_TTL_SECONDS);
     }

@@ -1,41 +1,31 @@
 import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { readFileSync } from 'fs'
+import { baseConfig, getAppVersion, getCommonBuildConfig } from './vite.config.base.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-
-// 从 package.json 读取版本号
-const packageJson = JSON.parse(readFileSync(path.join(__dirname, 'package.json'), 'utf-8'))
-const appVersion = packageJson.version
+const appVersion = getAppVersion()
 
 // 生产环境专用配置 - 用于打包独立exe
 export default defineConfig({
-  plugins: [vue()],
-  base: './', // Electron需要相对路径
+  // 使用公共配置
+  ...baseConfig,
+  
+  // Electron需要相对路径
+  base: './',
 
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      '@config': path.resolve(__dirname, './src/config'),
-      '@utils': path.resolve(__dirname, './src/utils'),
-      '@composables': path.resolve(__dirname, './src/composables'),
-      '@services': path.resolve(__dirname, './src/services'),
-      '@types': path.resolve(__dirname, './src/types')
-    },
-  },
-
+  // CSS 配置（生产环境不需要 sourcemap）
   css: {
-    postcss: './postcss.config.js',
+    ...baseConfig.css,
     devSourcemap: false
   },
 
   build: {
-    outDir: 'dist',
-    assetsDir: 'assets',
-    sourcemap: false, // 生产环境不需要sourcemap
-    minify: 'terser',
+    // 使用公共构建配置
+    ...getCommonBuildConfig(),
+    
+    // 生产环境特定配置
+    sourcemap: false,
     chunkSizeWarningLimit: 2000,
     
     terserOptions: {
@@ -119,39 +109,16 @@ export default defineConfig({
     emptyOutDir: true
   },
 
-  // 依赖预构建优化
-  optimizeDeps: {
-    include: [
-      'vue',
-      'vue-router', 
-      'pinia',
-      'axios',
-      'dayjs',
-      'element-plus',
-      '@element-plus/icons-vue',
-      'chart.js',
-      'echarts'
-    ],
-    exclude: [
-      '@iconify/json',
-      'fsevents'
-    ]
-  },
+  // 依赖预构建优化（使用公共配置）
+  // optimizeDeps 已在 baseConfig 中定义
 
-  // 定义全局常量
-  define: {
-    __APP_VERSION__: JSON.stringify(appVersion),
-    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
-    __ENV__: JSON.stringify('production'),
-    'process.env.NODE_ENV': JSON.stringify('production'),
-    'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion)
-  },
+  // 定义全局常量（生产环境）
+  define: baseConfig.getDefine('production', appVersion),
 
   // ESBuild配置 - 生产环境优化
   esbuild: {
-    target: 'es2020',
+    ...baseConfig.esbuild,
     drop: ['console', 'debugger'],
-    legalComments: 'none',
     minifyIdentifiers: true,
     minifySyntax: true,
     minifyWhitespace: true

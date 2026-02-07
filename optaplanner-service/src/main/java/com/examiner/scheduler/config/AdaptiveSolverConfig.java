@@ -183,6 +183,7 @@ public class AdaptiveSolverConfig {
      * 创建快速构造启发式配置（闪电模式）
      * 🚀 v5.5.6: 升级到FIRST_FIT_DECREASING，提升初始解质量20%
      */
+    @SuppressWarnings("unused")
     private ConstructionHeuristicPhaseConfig createFastConstructionHeuristicConfig() {
         ConstructionHeuristicPhaseConfig config = new ConstructionHeuristicPhaseConfig();
         
@@ -198,6 +199,7 @@ public class AdaptiveSolverConfig {
      * 创建标准构造启发式配置（标准模式）
      * 🚀 v5.5.6: 升级到WEAKEST_FIT，提升初始解质量50%
      */
+    @SuppressWarnings("unused")
     private ConstructionHeuristicPhaseConfig createStandardConstructionHeuristicConfig() {
         ConstructionHeuristicPhaseConfig config = new ConstructionHeuristicPhaseConfig();
         
@@ -213,6 +215,7 @@ public class AdaptiveSolverConfig {
      * 创建精确构造启发式配置（精确模式）
      * 🚀 v5.5.6: 升级到ALLOCATE_ENTITY_FROM_QUEUE，最大化初始解质量
      */
+    @SuppressWarnings("unused")
     private ConstructionHeuristicPhaseConfig createPreciseConstructionHeuristicConfig() {
         ConstructionHeuristicPhaseConfig config = new ConstructionHeuristicPhaseConfig();
         

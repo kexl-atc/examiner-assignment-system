@@ -71,7 +71,8 @@ export class HolidayService {
     // 元旦
     { date: '2026-01-01', name: '元旦', type: 'national', description: '元旦节' },
 
-    // 春节假期（2026年2月17日春节）
+    // 春节假期（2026年2月15日-23日，共9天）
+    { date: '2026-02-15', name: '春节', type: 'national', description: '春节假期第一天' },
     { date: '2026-02-16', name: '春节', type: 'national', description: '除夕' },
     { date: '2026-02-17', name: '春节', type: 'national', description: '春节初一' },
     { date: '2026-02-18', name: '春节', type: 'national', description: '春节初二' },
@@ -79,6 +80,7 @@ export class HolidayService {
     { date: '2026-02-20', name: '春节', type: 'national', description: '春节初四' },
     { date: '2026-02-21', name: '春节', type: 'national', description: '春节初五' },
     { date: '2026-02-22', name: '春节', type: 'national', description: '春节初六' },
+    { date: '2026-02-23', name: '春节', type: 'national', description: '春节假期最后一天' },
 
     // 清明节（2026年4月5日）
     { date: '2026-04-05', name: '清明节', type: 'national', description: '清明节' },
@@ -123,8 +125,9 @@ export class HolidayService {
 
   // 2026年调休工作日（预估，待官方通知确认）
   private readonly workdays2026: string[] = [
-    '2026-02-15', // 春节调休（预估）
-    '2026-02-23', // 春节调休（预估）
+    // 注：2026年春节假期为2月15日-23日，原调休日已取消
+    // '2026-02-15', // 已取消（现为假期）
+    // '2026-02-23', // 已取消（现为假期）
     '2026-04-26', // 劳动节调休（预估）
     '2026-09-27', // 国庆节调休（预估）
     '2026-10-10', // 国庆节调休（预估）

@@ -524,7 +524,7 @@ const pagination = reactive({
 })
 
 // 应用版本号 - 从 package.json 自动读取
-const appVersion = ref(import.meta.env.VITE_APP_VERSION || '6.1.0')
+const appVersion = ref(import.meta.env.VITE_APP_VERSION || '0.0.0')
 
 // 响应式状态
 const sidebarCollapsed = ref(false)

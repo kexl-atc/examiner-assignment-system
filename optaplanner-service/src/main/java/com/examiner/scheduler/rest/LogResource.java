@@ -12,9 +12,8 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
-// import java.time.ZoneId; // 未使用，已移除
-// import java.time.format.DateTimeFormatter; // 未使用，已移除
 import java.util.ArrayList;
+import java.util.logging.Logger;
 import java.util.Collections;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -42,6 +41,7 @@ public class LogResource {
     }
 
     private static final Object FRONTEND_LOG_LOCK = new Object();
+    private static final Logger LOGGER = Logger.getLogger(LogResource.class.getName());
 
     public static class FrontendLogRequest {
         public String level;
@@ -134,7 +134,7 @@ public class LogResource {
             response.success = false;
             response.error = "读取日志失败: " + e.getMessage();
             response.logs = Collections.emptyList();
-            e.printStackTrace();
+            LOGGER.severe("读取日志失败: " + e.getMessage());
         }
 
         return Response.ok(response).build();

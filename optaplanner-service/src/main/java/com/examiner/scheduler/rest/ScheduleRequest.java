@@ -17,6 +17,7 @@ public class ScheduleRequest {
     private List<Teacher> teachers;
     private String startDate;
     private String endDate;
+    private List<String> examDates; // 🆕 前端计算好的可用日期（已排除不可用日期和周末）
     private OptimizedConstraintConfiguration constraints;
     private SolverConfiguration solverConfig;
     
@@ -64,6 +65,14 @@ public class ScheduleRequest {
     
     public void setEndDate(String endDate) {
         this.endDate = endDate;
+    }
+    
+    public List<String> getExamDates() {
+        return examDates;
+    }
+    
+    public void setExamDates(List<String> examDates) {
+        this.examDates = examDates;
     }
     
     public OptimizedConstraintConfiguration getConstraints() {

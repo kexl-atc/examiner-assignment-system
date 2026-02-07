@@ -278,5 +278,8 @@ class UnifiedStorageService {
 // 导出单例实例
 export const unifiedStorageService = new UnifiedStorageService()
 
+// 为了向后兼容，导出 storageService 别名
+export const storageService = unifiedStorageService
+
 // 默认导出
 export default unifiedStorageService

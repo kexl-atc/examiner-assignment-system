@@ -18,6 +18,12 @@
         <skipFrontendCopy>false</skipFrontendCopy>
         <!-- Frontend dist directory (relative to project root) -->
         <frontend.dist.dir>${project.basedir}/../dist</frontend.dist.dir>
+        <!-- 
+            Note: Maven may show a warning about accessing directories 
+            outside of project base (../dist). This is expected and safe - 
+            the frontend dist directory is intentionally located at the project root.
+            This warning does not affect the build process and can be safely ignored.
+        -->
     </properties>
 
     <dependencyManagement>
@@ -204,12 +210,13 @@
                                 </resource>
                             </resources>
                             <!-- Skip if dist directory doesn't exist -->
-                            <skip>${skipFrontendCopy}</skip>
-                            <!-- 
-                                Note: Maven 3.6.1+ will show a warning about accessing directories 
-                                outside the project base (../dist). This is expected and harmless - 
-                                the frontend dist directory is intentionally located at the project root.
-                            -->
+                        <skip>${skipFrontendCopy}</skip>
+                        <!-- 
+                            Note: Maven 3.6.1+ may show a warning about accessing directories 
+                            outside the project base (../dist). This is expected and harmless - 
+                            the frontend dist directory is intentionally located at the project root.
+                            This warning can be safely ignored as it's part of the normal build process.
+                        -->
                         </configuration>
                     </execution>
                 </executions>

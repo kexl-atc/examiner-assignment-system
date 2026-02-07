@@ -70,15 +70,6 @@
                 <template #icon><Download class="w-4 h-4" /></template>
                 导出结果
               </el-button>
-              <el-button 
-                type="primary" 
-                size="small" 
-                @click="exportToSchedulePage" 
-                :disabled="students.length === 0"
-              >
-                <template #icon><Calendar class="w-4 h-4" /></template>
-                导出到自动排班
-              </el-button>
               <el-button size="small" @click="addStudent" type="primary">
                 <template #icon><UserPlus class="w-4 h-4" /></template>
                 添加考生
@@ -1674,7 +1665,7 @@ onUnmounted(() => {
 
 // 侧边栏状态
 const sidebarCollapsed = ref(false);
-const appVersion = ref(import.meta.env.VITE_APP_VERSION || '6.1.0');
+const appVersion = ref(import.meta.env.VITE_APP_VERSION || '0.0.0');
 
 // 切换侧边栏
 const toggleSidebar = () => {

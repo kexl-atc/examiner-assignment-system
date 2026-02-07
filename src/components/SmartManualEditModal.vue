@@ -311,7 +311,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import { DateUtils as dateUtils } from '../utils/dateUtils'
-import { normalizeDeptToFull } from '../utils/departmentNormalizer'
+import { normalizeDeptToFull, normalizeDeptToShort } from '../utils/departmentNormalizer'
 
 // 🆕 科室名称显示转换函数（统一显示为"区域X室"格式）
 const displayDepartment = (dept: string | undefined | null): string => {
@@ -398,6 +398,8 @@ interface Props {
   availableTeachers: Teacher[]
   currentValue?: string
   allScheduleRecords?: any[] // 所有排班记录，用于HC5检查
+  smartRecommendations?: SmartRecommendation[]
+  conflicts?: Conflict[]
 }
 
 interface Emits {
@@ -805,9 +807,24 @@ const generateSmartRecommendations = () => {
   const examiner1RecommendedDept = (editingRecord as any).recommendedExaminer1Dept
   const examiner2RecommendedDept = (editingRecord as any).recommendedExaminer2Dept
 
-  // 获取当前已选择的考官（用于SC14科室互斥检查）
-  const day1Examiner2Dept = (editingRecord as any).examiner1_2_dept
-  const day2Examiner2Dept = (editingRecord as any).examiner2_2_dept
+  // 🔧 修复：从availableTeachers获取当前已选考官的实时科室信息（而非editingRecord中可能过期的值）
+  const getTeacherDeptFromAvailable = (teacherName: string): string => {
+    if (!teacherName || !props.availableTeachers) return ''
+    const teacher = props.availableTeachers.find((t: Teacher) => t.name === teacherName)
+    return teacher ? normalizeDeptToShort(teacher.department) : ''
+  }
+
+  // 获取当前已选择的考官姓名
+  const day1Examiner1Name = editingRecord.examiner1_1
+  const day2Examiner1Name = editingRecord.examiner2_1
+  const day1Examiner2Name = editingRecord.examiner1_2
+  const day2Examiner2Name = editingRecord.examiner2_2
+
+  // 从availableTeachers获取实时科室信息
+  const day1Examiner1Dept = getTeacherDeptFromAvailable(day1Examiner1Name)
+  const day2Examiner1Dept = getTeacherDeptFromAvailable(day2Examiner1Name)
+  const day1Examiner2Dept = getTeacherDeptFromAvailable(day1Examiner2Name)
+  const day2Examiner2Dept = getTeacherDeptFromAvailable(day2Examiner2Name)
 
   process.env.NODE_ENV === 'development' && console.log('🎯 [精细化推荐] 开始生成推荐:', {
     editingField,
@@ -832,8 +849,8 @@ const generateSmartRecommendations = () => {
     const warnings: Array<{ type: string; text: string }> = []
     let score = 50 // 基础分数
 
-    const teacherDept = normalizeDepartment(teacher.department)
-    const studentDept = normalizeDepartment(editingRecord.department)
+    const teacherDept = normalizeDeptToShort(teacher.department)
+    const studentDept = normalizeDeptToShort(editingRecord.department)
 
     // #region agent log - 假设A：检查科室规范化
     if (enhancedTeachers.indexOf(teacher) < 5) { // 只记录前5个考官
@@ -871,6 +888,31 @@ const generateSmartRecommendations = () => {
         score = 0 // 硬约束违反，不推荐
         return
       }
+
+      // HC7检查：考官1不能与已选择的考官2同科室
+      const currentExaminer2Dept = isDay1 ? day1Examiner2Dept : day2Examiner2Dept
+      if (currentExaminer2Dept) {
+        const examiner2Dept = normalizeDeptToShort(currentExaminer2Dept)
+        if (examiner2Dept && teacherDept === examiner2Dept) {
+          warnings.push({
+            type: 'department_mismatch',
+            text: '❌ 与考官2同科室（违反HC7）',
+          })
+          score = 0 // 硬约束违反，不推荐
+          return
+        }
+      }
+
+      // HC8检查：考官1不能与备份考官是同一人
+      const currentBackup = isDay1 ? editingRecord.backup1 : editingRecord.backup2
+      if (currentBackup && teacher.name === currentBackup) {
+        warnings.push({
+          type: 'same_person_conflict',
+          text: '❌ 与备份考官是同一人（违反HC8）',
+        })
+        score = 0 // 硬约束违反，不推荐
+        return
+      }
     }
 
     // ========================================
@@ -893,12 +935,37 @@ const generateSmartRecommendations = () => {
         score += 20
       }
 
+      // HC7检查：考官2不能与已选择的考官1同科室
+      const currentExaminer1Dept = isDay1 ? day1Examiner1Dept : day2Examiner1Dept
+      if (currentExaminer1Dept) {
+        const examiner1Dept = normalizeDeptToShort(currentExaminer1Dept)
+        if (examiner1Dept && teacherDept === examiner1Dept) {
+          warnings.push({
+            type: 'department_mismatch',
+            text: '❌ 与考官1同科室（违反HC7）',
+          })
+          score = 0 // 硬约束违反，不推荐
+          return
+        }
+      }
+
+      // HC8检查：考官2不能与备份考官是同一人
+      const currentBackup = isDay1 ? editingRecord.backup1 : editingRecord.backup2
+      if (currentBackup && teacher.name === currentBackup) {
+        warnings.push({
+          type: 'same_person_conflict',
+          text: '❌ 与备份考官是同一人（违反HC8）',
+        })
+        score = 0 // 硬约束违反，不推荐
+        return
+      }
+
       // SC2检查：Day1应该来自考官1推荐科室，Day2应该来自考官2推荐科室
       // 注：examiner1RecommendedDept 是给Day1考官二的推荐科室
       //     examiner2RecommendedDept 是给Day2考官二的推荐科室
       const targetRecommendedDept = isDay1
-        ? normalizeDepartment(examiner1RecommendedDept)
-        : normalizeDepartment(examiner2RecommendedDept)
+        ? normalizeDeptToShort(examiner1RecommendedDept)
+        : normalizeDeptToShort(examiner2RecommendedDept)
 
       if (targetRecommendedDept && teacherDept === targetRecommendedDept) {
         reasons.push({
@@ -917,9 +984,9 @@ const generateSmartRecommendations = () => {
 
       // SC14检查：Day1和Day2考官二应来自不同推荐科室
       if (!isDay1 && day1Examiner2Dept) {
-        const day1Dept = normalizeDepartment(day1Examiner2Dept)
-        const normalizedExaminer1Dept = normalizeDepartment(examiner1RecommendedDept)
-        const normalizedExaminer2Dept = normalizeDepartment(examiner2RecommendedDept)
+        const day1Dept = normalizeDeptToShort(day1Examiner2Dept)
+        const normalizedExaminer1Dept = normalizeDeptToShort(examiner1RecommendedDept)
+        const normalizedExaminer2Dept = normalizeDeptToShort(examiner2RecommendedDept)
 
         // 如果Day1的考官二来自推荐科室池，Day2应该选择另一个推荐科室
         const day1IsInPool =
@@ -948,6 +1015,62 @@ const generateSmartRecommendations = () => {
     // 备份考官：Day1从考官1推荐科室，Day2从考官2推荐科室
     // ========================================
     else if (isBackup) {
+      // 获取当前已选考官（用于HC8和HC8b检查）
+      const currentExaminer1 = isDay1
+        ? editingRecord.examiner1_1
+        : editingRecord.examiner2_1
+      const currentExaminer2 = isDay1
+        ? editingRecord.examiner1_2
+        : editingRecord.examiner2_2
+
+      // HC8检查：备份考官不能与考官1是同一人
+      if (currentExaminer1 && teacher.name === currentExaminer1) {
+        warnings.push({
+          type: 'same_person_conflict',
+          text: '❌ 与考官1是同一人（违反HC8）',
+        })
+        score = 0 // 硬约束违反，不推荐
+        return
+      }
+
+      // HC8检查：备份考官不能与考官2是同一人
+      if (currentExaminer2 && teacher.name === currentExaminer2) {
+        warnings.push({
+          type: 'same_person_conflict',
+          text: '❌ 与考官2是同一人（违反HC8）',
+        })
+        score = 0 // 硬约束违反，不推荐
+        return
+      }
+
+      // HC8b检查：备份考官不能与考官1同科室
+      const currentExaminer1Dept = isDay1 ? day1Examiner1Dept : day2Examiner1Dept
+      if (currentExaminer1Dept) {
+        const examiner1Dept = normalizeDeptToShort(currentExaminer1Dept)
+        if (examiner1Dept && teacherDept === examiner1Dept) {
+          warnings.push({
+            type: 'department_mismatch',
+            text: '❌ 与考官1同科室（违反HC8b）',
+          })
+          score = 0 // 硬约束违反，不推荐
+          return
+        }
+      }
+
+      // HC8b检查：备份考官不能与考官2同科室
+      const currentExaminer2Dept = isDay1 ? day1Examiner2Dept : day2Examiner2Dept
+      if (currentExaminer2Dept) {
+        const examiner2Dept = normalizeDeptToShort(currentExaminer2Dept)
+        if (examiner2Dept && teacherDept === examiner2Dept) {
+          warnings.push({
+            type: 'department_mismatch',
+            text: '❌ 与考官2同科室（违反HC8b）',
+          })
+          score = 0 // 硬约束违反，不推荐
+          return
+        }
+      }
+
       // 备份考官必须与学员不同科室
       if (teacherDept === studentDept) {
         warnings.push({
@@ -965,8 +1088,8 @@ const generateSmartRecommendations = () => {
 
       // SC4检查：备份考官也按Day1/Day2区分推荐科室
       const targetRecommendedDept = isDay1
-        ? normalizeDepartment(examiner1RecommendedDept)
-        : normalizeDepartment(examiner2RecommendedDept)
+        ? normalizeDeptToShort(examiner1RecommendedDept)
+        : normalizeDeptToShort(examiner2RecommendedDept)
 
       if (targetRecommendedDept && teacherDept === targetRecommendedDept) {
         reasons.push({
@@ -985,8 +1108,38 @@ const generateSmartRecommendations = () => {
     }
 
     // ========================================
-    // 通用检查：工作量、晚班、休息日
+    // 通用检查：HC4、HC3、HC9、工作量等
     // ========================================
+
+    // 🆕 HC4: 每名考官每天只能监考一名考生（硬约束）
+    if (props.allScheduleRecords && props.allScheduleRecords.length > 0) {
+      const sameTeacherSameDay = props.allScheduleRecords.filter((record: any) => {
+        if (record.id === editingRecord.id) return false
+
+        const day1HasTeacher =
+          record.date1 === examDate &&
+          [record.examiner1_1, record.examiner2_1, record.backup1].includes(teacher.name)
+
+        const day2HasTeacher =
+          record.date2 === examDate &&
+          [record.examiner1_2, record.examiner2_2, record.backup2].includes(teacher.name)
+
+        const legacyHasTeacher =
+          record.examDate === examDate &&
+          [record.examiner1, record.examiner2, record.backup].includes(teacher.name)
+
+        return day1HasTeacher || day2HasTeacher || legacyHasTeacher
+      })
+
+      if (sameTeacherSameDay.length > 0) {
+        warnings.push({
+          type: 'daily_limit_exceeded',
+          text: `❌ 当天已监考${sameTeacherSameDay.length}场（违反HC4）`,
+        })
+        score = 0 // 硬约束违反，不推荐
+        return
+      }
+    }
 
     // 🆕 HC3: 白班执勤冲突检查（硬约束）
     if (hasWhiteShiftConflict(teacher, examDate)) {

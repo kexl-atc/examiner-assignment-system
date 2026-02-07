@@ -7,7 +7,8 @@ import com.examiner.scheduler.config.AdaptiveSolverConfig;
 import com.examiner.scheduler.config.EnhancedSolverConfig;
 import com.examiner.scheduler.websocket.ScheduleProgressWebSocket;
 import com.examiner.scheduler.util.AssignmentMapper;
-// import com.examiner.scheduler.solver.OptimizedExamScheduleConstraintProvider; // 临时注释解决编译问题
+import com.examiner.scheduler.solver.OptimizedExamScheduleConstraintProvider;
+import com.examiner.scheduler.diagnosis.ConstraintViolationDiagnostics;
 import org.optaplanner.core.api.solver.Solver;
 import org.optaplanner.core.api.solver.SolverFactory;
 import org.optaplanner.core.config.solver.SolverConfig;
@@ -167,6 +168,7 @@ public class ExamScheduleResource {
                 request.getTeachers(), 
                 request.getStartDate(), 
                 request.getEndDate(),
+                request.getExamDates(),  // 🆕 传递前端计算的可用日期
                 request.getConstraints()
             );
             
@@ -404,7 +406,7 @@ public class ExamScheduleResource {
             
         } catch (Exception e) {
             LOGGER.severe("同步排班计算时发生错误: " + e.getMessage());
-            e.printStackTrace();
+            LOGGER.severe("异常详情: " + java.util.Arrays.toString(e.getStackTrace()));
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity("{\"success\":false,\"message\":\"排班计算失败: " + e.getMessage() + "\"}")
                     .build();
@@ -440,6 +442,7 @@ public class ExamScheduleResource {
                         request.getTeachers(), 
                         request.getStartDate(), 
                         request.getEndDate(),
+                        request.getExamDates(),  // 🆕 传递前端计算的可用日期
                         request.getConstraints()
                     );
                     
@@ -535,7 +538,7 @@ public class ExamScheduleResource {
             healthStatus.put("status", "UP");
             healthStatus.put("service", "examiner-scheduler");
             healthStatus.put("timestamp", java.time.Instant.now().toString());
-            healthStatus.put("version", "1.0.0");
+            healthStatus.put("version", "8.0.15");
             
             // 检查OptaPlanner组件状态
             try {
@@ -630,7 +633,7 @@ public class ExamScheduleResource {
         String finalLevel = "none";
         
         // 🚀 v5.5.6: 清理 DutySchedule 缓存，为新一轮求解准备
-        com.examiner.scheduler.solver.OptimizedExamScheduleConstraintProvider.clearDutyScheduleCache();
+        OptimizedExamScheduleConstraintProvider.clearDutyScheduleCache();
         LOGGER.info("🔄 [v5.5.6] 已清理 DutySchedule 缓存");
         
         // 🆕 启用日志推送到前端
@@ -1004,11 +1007,11 @@ public class ExamScheduleResource {
                 LOGGER.info("🔍 [v5.5.4] 求解中断，正在诊断部分结果...");
                 
                 // 诊断部分结果
-                com.examiner.scheduler.diagnosis.ConstraintViolationDiagnostics.DiagnosisResult diagnosis = 
-                    com.examiner.scheduler.diagnosis.ConstraintViolationDiagnostics.diagnose(bestSolution);
+                ConstraintViolationDiagnostics.DiagnosisResult diagnosis = 
+                    ConstraintViolationDiagnostics.diagnose(bestSolution);
                 
                 // 记录诊断结果
-                String diagnosisReport = com.examiner.scheduler.diagnosis.ConstraintViolationDiagnostics.formatDiagnosis(diagnosis);
+                String diagnosisReport = ConstraintViolationDiagnostics.formatDiagnosis(diagnosis);
                 LOGGER.info("📋 [v5.5.4] 诊断报告:\n" + diagnosisReport);
                 
                 // 构建响应，包含诊断信息
@@ -1288,8 +1291,24 @@ public class ExamScheduleResource {
             // 2. 构建问题
             ExamSchedule problem = buildPartialRescheduleProblem(request, sessionId);
             
-            // 3. 使用快速求解配置（20秒）
-            SolverConfig solverConfig = createPartialRescheduleSolverConfig();
+            // 3. 使用优化的局部重排求解器配置
+            SolverConfig solverConfig;
+            
+            // 根据问题规模选择合适的配置
+            int unpinnedCount = (int) problem.getExamAssignments().stream()
+                .filter(a -> !a.isPinned())
+                .count();
+            
+            if (unpinnedCount <= 10) {
+                LOGGER.info("⚡ [局部重排] 使用快速配置（小规模问题，未固定排班数: " + unpinnedCount + "）");
+                solverConfig = com.examiner.scheduler.solver.PartialRescheduleSolverConfig.createFastConfig();
+            } else if (unpinnedCount <= 30) {
+                LOGGER.info("🔍 [局部重排] 使用标准配置（中等规模问题，未固定排班数: " + unpinnedCount + "）");
+                solverConfig = com.examiner.scheduler.solver.PartialRescheduleSolverConfig.createConfig();
+            } else {
+                LOGGER.info("🔥 [局部重排] 使用深度配置（大规模问题，未固定排班数: " + unpinnedCount + "）");
+                solverConfig = com.examiner.scheduler.solver.PartialRescheduleSolverConfig.createDeepConfig();
+            }
             
             // 4. 创建求解器
             SolverFactory<ExamSchedule> solverFactory = SolverFactory.create(solverConfig);
@@ -1720,7 +1739,10 @@ public class ExamScheduleResource {
         teacher.setId(dto.getId());
         teacher.setName(dto.getName());
         teacher.setDepartment(dto.getDepartment());
-        teacher.setGroup(dto.getGroup());
+        // 🔍 调试日志：检查DTO中的group值
+        String groupValue = dto.getGroup();
+        LOGGER.info("🔍 [convertDTOToTeacher] 考官:" + dto.getName() + ", DTO.group=" + groupValue);
+        teacher.setGroup(groupValue);
         teacher.setWorkload(dto.getWorkload());
         teacher.setConsecutiveDays(dto.getConsecutiveDays());
         java.util.List<PartialRescheduleRequest.TeacherDTO.UnavailablePeriod> dtoPeriods = dto.getUnavailablePeriods();
@@ -1744,6 +1766,7 @@ public class ExamScheduleResource {
     /**
      * 🔧 修复Day2日期（确保是Day1+1）和分配备份考官
      */
+    @SuppressWarnings("unused")
     private void fixDay2DatesAndBackupExaminers(java.util.List<ExamAssignment> assignments, java.util.List<Teacher> availableTeachers) {
         LOGGER.info("🔧 [局部重排] 开始修复Day2日期和备份考官分配...");
         
@@ -1862,24 +1885,6 @@ public class ExamScheduleResource {
         }
         
         return null;
-    }
-    
-    /**
-     * 创建局部重排求解器配置
-     * 优化：比完整重排更快（20秒 vs 60秒）
-     */
-    private SolverConfig createPartialRescheduleSolverConfig() {
-        LOGGER.info("⚙️ [局部重排] 创建求解器配置（快速模式，20秒限制）");
-        
-        return new SolverConfig()
-            .withSolutionClass(ExamSchedule.class)
-            .withEntityClasses(ExamAssignment.class)
-            .withConstraintProviderClass(com.examiner.scheduler.solver.OptimizedExamScheduleConstraintProvider.class)
-            .withTerminationConfig(new org.optaplanner.core.config.solver.termination.TerminationConfig()
-                .withSecondsSpentLimit(20L)           
-                .withUnimprovedSecondsSpentLimit(5L)  
-                .withBestScoreLimit("0hard/*soft")    
-            );
     }
     
     /**

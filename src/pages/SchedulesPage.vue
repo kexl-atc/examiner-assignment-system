@@ -99,27 +99,20 @@
             </div>
           </div>
           <div class="header-actions">
+            <!-- 🔧 局部重排按钮（合并原'重新排班'和'只重排固定排班'） -->
             <button 
-              class="action-btn action-btn-warning" 
-              @click="triggerDeepReschedule"
-              :disabled="isScheduling || isDeepRescheduling"
-              :class="{ loading: isDeepRescheduling }"
-              title="深度优化排班（运行5-10分钟，寻找更优解）- 适用于对当前排班不满意时使用"
+              class="action-btn action-btn-primary" 
+              @click="triggerLocalReschedule"
+              :disabled="isLocalRescheduling || pinnedScheduleIds.size === 0"
+              :class="{ loading: isLocalRescheduling }"
+              :title="pinnedScheduleIds.size === 0 ? '请先固定需要重排的排班记录' : '为固定的排班记录在选定日期后自动扩展日期（2→4→6→8天）直到排班成功，未固定排班保持不变'"
             >
-              <RefreshCw class="btn-icon" :class="{ 'spinning': isDeepRescheduling }" />
-              <span v-if="!isDeepRescheduling">重新排班</span>
-              <span v-else>深度优化中...</span>
-            </button>
-            <button
-              class="action-btn action-btn-primary"
-              @click="triggerPartialReschedule"
-              :disabled="isPartialRescheduling"
-              :class="{ loading: isPartialRescheduling }"
-              title="只对已固定排班重新分配考官（拖拽修改日期后会自动固定），未固定排班将保持不变"
-            >
-              <RefreshCw class="btn-icon" :class="{ 'spinning': isPartialRescheduling }" />
-              <span v-if="!isPartialRescheduling">只重排固定排班</span>
-              <span v-else>重排中...</span>
+              <RefreshCw class="btn-icon" :class="{ 'spinning': isLocalRescheduling }" />
+              <span v-if="!isLocalRescheduling">
+                局部重排
+                <span v-if="pinnedScheduleIds.size > 0" style="font-size: 11px; opacity: 0.8;">({{ pinnedScheduleIds.size }})</span>
+              </span>
+              <span v-else>局部重排中...</span>
             </button>
             <!-- 🚫 "检测冲突"按钮已移除（用户要求） -->
             <button class="action-btn action-btn-secondary" @click="showConstraintsPanel = false" v-if="showConstraintsPanel">
@@ -961,8 +954,13 @@
             <div class="step-label">日期选择</div>
           </div>
           <div class="step-divider"></div>
-          <div class="step-item" :class="{ active: currentStep === 3 }">
+          <div class="step-item" :class="{ active: currentStep === 3, completed: currentStep > 3 }">
             <div class="step-number">3</div>
+            <div class="step-label">智能评估</div>
+          </div>
+          <div class="step-divider"></div>
+          <div class="step-item" :class="{ active: currentStep === 4 }">
+            <div class="step-number">4</div>
             <div class="step-label">确认执行</div>
           </div>
         </div>
@@ -970,8 +968,9 @@
         <!-- 步骤1: 学员导入 -->
         <div v-if="currentStep === 1" class="step-content">
           <div class="step-title">
-            <h3>请导入学员名单</h3>
-            <p class="step-description">支持从考官分配页面导入或上传Excel/CSV文件</p>
+            <div class="step-icon">👥</div>
+            <h3>第一步：导入学员名单</h3>
+            <p class="step-description">导入需要参加考试的学员信息，支持从考官分配页面一键导入或上传Excel/CSV文件</p>
           </div>
           
           <!-- 🆕 从考官分配导入按钮 -->
@@ -1012,8 +1011,8 @@
                   <line x1="12" y1="15" x2="12" y2="3"/>
                 </svg>
               </div>
-              <p class="upload-text">请将文件拖入框内</p>
-              <p class="upload-subtext">支持Excel、CSV等格式的导入</p>
+              <p class="upload-text">点击或拖拽上传学员名单</p>
+              <p class="upload-subtext">支持 Excel (.xlsx, .xls) 或 CSV 格式文件，文件需包含姓名、科室、班组等基本信息</p>
             </div>
             
             <div v-else class="file-info">
@@ -1125,45 +1124,210 @@
         <!-- 步骤2: 日期选择 -->
         <div v-if="currentStep === 2" class="step-content">
           <div class="step-title">
-            <h3>📅 选择考试日期</h3>
-            <p class="step-description">选择考试的开始和结束日期范围，支持快速选择常用时间段</p>
+            <div class="step-icon">📅</div>
+            <h3>第二步：设置考试日期</h3>
+            <p class="step-description">选择考试日期范围，系统会根据学员和考官数量智能推荐最合适的结束日期</p>
           </div>
 
+          <!-- 智能日期推荐提示 -->
+          <div v-if="!examStartDateStr && studentList.length > 0" class="smart-date-hint" style="background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%); border: 2px solid #3b82f6; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; display: flex; align-items: center; gap: 12px;">
+            <div style="width: 40px; height: 40px; background: #3b82f6; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="16" x2="12" y2="12"></line>
+                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+              </svg>
+            </div>
+            <div>
+              <div style="font-size: 15px; font-weight: 600; color: #1e40af;">💡 智能提示</div>
+              <div style="font-size: 14px; color: #1e3a8a; margin-top: 4px;">请先选择考试开始日期，系统将根据学员和考官数量自动计算并推荐最合适的结束日期</div>
+            </div>
+          </div>
+
+          <!-- 日期选择区域 -->
           <div class="date-selection">
             <div class="date-group">
               <label class="date-label">
-                🗓️ 考试开始日期
+                <span class="label-main">🗓️ 考试开始日期</span>
                 <span class="date-label-tip">选择第一天考试日期</span>
               </label>
               <div class="date-input-wrapper">
-              <input 
-                type="date" 
-                v-model="examStartDateStr"
-                :min="minExamDateStr"
-                class="date-input"
+                <input 
+                  type="date" 
+                  v-model="examStartDateStr"
+                  :min="minExamDateStr"
+                  class="date-input"
                   @change="onStartDateChange"
-              />
+                  placeholder="请选择开始日期"
+                />
                 <div class="date-input-icon">📅</div>
+              </div>
+              <div v-if="!examStartDateStr && studentList.length > 0" class="field-hint" style="margin-top: 8px; font-size: 13px; color: #f59e0b; display: flex; align-items: center; gap: 6px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                  <line x1="12" y1="9" x2="12" y2="13"></line>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                <span>请先选择开始日期</span>
               </div>
             </div>
             
             <div class="date-group">
               <label class="date-label">
-                🗓️ 考试结束日期
-                <span class="date-label-tip">选择最后一天考试日期</span>
+                <span class="label-main">🗓️ 考试结束日期</span>
+                <span class="date-label-tip" v-if="!calculatedOptimalEndDate">选择最后一天考试日期</span>
+                <span class="date-label-tip recommended" v-else>💡 系统推荐：{{ calculatedOptimalEndDate }}</span>
               </label>
-              <div class="date-input-wrapper">
-              <input 
-                type="date" 
-                v-model="examEndDateStr"
-                :min="examStartDateStr || minExamDateStr"
-                class="date-input"
+              <div class="date-input-wrapper" :class="{ 'has-recommendation': calculatedOptimalEndDate }">
+                <input 
+                  type="date" 
+                  v-model="examEndDateStr"
+                  :min="examStartDateStr || minExamDateStr"
+                  class="date-input"
                   @change="onEndDateChange"
-              />
+                  placeholder="请选择结束日期"
+                />
                 <div class="date-input-icon">📅</div>
+                <button 
+                  v-if="calculatedOptimalEndDate && examEndDateStr !== calculatedOptimalEndDate"
+                  @click="applyCalculatedOptimalDate"
+                  class="apply-recommended-btn"
+                  title="应用系统推荐的结束日期"
+                >
+                  应用推荐
+                </button>
+              </div>
+              <div v-if="calculatedOptimalEndDate" class="field-hint success" style="margin-top: 8px; font-size: 13px; color: #10b981; display: flex; align-items: center; gap: 6px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <span>根据{{ studentList.length }}名学员和{{ getTotalTeachersCount() }}名考官计算，建议{{ calculatedOptimalDays }}天完成所有考试</span>
               </div>
             </div>
           </div>
+
+          <!-- 设置卡片组 -->
+          <div class="settings-card-group" style="margin-top: 16px; display: flex; flex-direction: column; gap: 12px;">
+            
+            <!-- 卡片 1: 周末安排考试开关 -->
+            <div class="setting-card" :class="{ 'active': allowWeekendScheduling }" 
+              style="background: #fff; border: 2px solid #e5e7eb; border-radius: 12px; padding: 16px; cursor: pointer; transition: all 0.2s;"
+              @click="toggleWeekendScheduling">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; transition: all 0.2s;"
+                    :style="allowWeekendScheduling ? 'background: #dbeafe; color: #2563eb;' : 'background: #f3f4f6; color: #6b7280;'">
+                    📅
+                  </div>
+                  <div>
+                    <h4 style="margin: 0; font-size: 15px; color: #1f2937; font-weight: 600;">周末是否安排考试</h4>
+                    <p style="margin: 4px 0 0; font-size: 13px; color: #6b7280;">{{ allowWeekendScheduling ? '已开启周末排班' : '周末不安排考试（推荐）' }}</p>
+                  </div>
+                </div>
+                <!-- 开关 -->
+                <div style="position: relative; width: 48px; height: 26px; border-radius: 26px; transition: all 0.3s; flex-shrink: 0;"
+                  :style="allowWeekendScheduling ? 'background: #3b82f6;' : 'background: #d1d5db;'">
+                  <div style="position: absolute; top: 2px; width: 22px; height: 22px; border-radius: 50%; background: white; transition: all 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.1);"
+                    :style="allowWeekendScheduling ? 'left: 24px;' : 'left: 2px;'"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 卡片 2: 不可用日期设置 -->
+            <div class="setting-card" :class="{ 'expanded': isUnavailableDatesExpanded, 'has-items': customUnavailableDates.length > 0 }"
+              style="background: #fff; border: 2px solid #e5e7eb; border-radius: 12px; overflow: hidden; transition: all 0.2s;">
+              <!-- 卡片头部 -->
+              <div @click="isUnavailableDatesExpanded = !isUnavailableDatesExpanded" 
+                style="padding: 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; transition: all 0.2s;"
+                    :style="customUnavailableDates.length > 0 ? 'background: #fef3c7; color: #d97706;' : 'background: #f3f4f6; color: #6b7280;'">
+                    🚫
+                  </div>
+                  <div>
+                    <h4 style="margin: 0; font-size: 15px; color: #1f2937; font-weight: 600;">不可用日期设置</h4>
+                    <p style="margin: 4px 0 0; font-size: 13px; color: #6b7280;">添加临时放假或不可考试的日期</p>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span v-if="customUnavailableDates.length > 0" 
+                    style="background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500;">
+                    {{ customUnavailableDates.length }} 个
+                  </span>
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="transition: transform 0.2s; color: #9ca3af;"
+                    :style="isUnavailableDatesExpanded ? 'transform: rotate(180deg);' : ''">
+                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- 展开内容 -->
+              <div v-show="isUnavailableDatesExpanded" style="border-top: 1px solid #f3f4f6; padding: 16px; background: #fafafa;">
+                <!-- 添加区域 -->
+                <div style="background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px; border: 1px solid #e5e7eb;">
+                  <!-- 模式选择 -->
+                  <div style="display: flex; gap: 16px; margin-bottom: 12px;">
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 14px; color: #374151;">
+                      <input type="radio" v-model="unavailableDateMode" value="single" style="accent-color: #3b82f6; width: 16px; height: 16px;">
+                      <span>单日</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 14px; color: #374151;">
+                      <input type="radio" v-model="unavailableDateMode" value="range" style="accent-color: #3b82f6; width: 16px; height: 16px;">
+                      <span>日期范围</span>
+                    </label>
+                  </div>
+
+                  <!-- 输入区域 -->
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 130px;">
+                      <input type="date" v-model="newUnavailableDate" 
+                        style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; outline: none; transition: border-color 0.2s;"
+                        onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#d1d5db'">
+                    </div>
+                    <div v-if="unavailableDateMode === 'range'" style="flex: 1; min-width: 130px;">
+                      <input type="date" v-model="newUnavailableEndDate" 
+                        style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; outline: none; transition: border-color 0.2s;"
+                        onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#d1d5db'">
+                    </div>
+                    <div style="flex: 2; min-width: 180px;">
+                      <input type="text" v-model="newUnavailableReason" placeholder="原因（可选）" 
+                        style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; outline: none; transition: border-color 0.2s;"
+                        onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#d1d5db'">
+                    </div>
+                    <button @click="addUnavailableDate" 
+                      style="padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 500; transition: all 0.2s; white-space: nowrap;"
+                      onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                      添加
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 列表区域 -->
+                <div v-if="customUnavailableDates.length > 0">
+                  <div v-for="(item, index) in customUnavailableDates" :key="index" 
+                    style="background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 16px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                      <span style="font-size: 18px;">📅</span>
+                      <div>
+                        <div style="font-size: 14px; color: #1f2937; font-weight: 500;">{{ item.displayDate }}</div>
+                        <div v-if="item.reason" style="font-size: 12px; color: #6b7280; margin-top: 2px;">{{ item.reason }}</div>
+                      </div>
+                    </div>
+                    <button @click="removeUnavailableDate(index)" 
+                      style="padding: 6px 12px; background: #fee2e2; color: #dc2626; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s;"
+                      onmouseover="this.style.background='#fecaca'" onmouseout="this.style.background='#fee2e2'">
+                      删除
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 空状态 -->
+                <div v-else style="text-align: center; padding: 32px; color: #9ca3af;">
+                  <div style="width: 56px; height: 56px; margin: 0 auto 12px; background: #f3f4f6; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 28px;">📆</div>
+                  <p style="margin: 0; font-size: 14px; color: #6b7280;">暂无不可用日期</p>
+                </div>
+              </div>
+            </div>
 
           <!-- 智能日期建议 - 暂时隐藏，待排班功能稳定后重新启用 -->
           <!--
@@ -1179,103 +1343,116 @@
             </div>
           -->
 
-          <!-- 不可用考官详情 -->
-          <div v-if="examStartDateStr && examEndDateStr" class="date-info-enhanced">
-            <div class="date-info-header" @click="isUnavailableExpanded = !isUnavailableExpanded" style="cursor: pointer;">
-              <span class="expand-icon" :style="{ transform: isUnavailableExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', marginRight: '8px' }">▶</span>
-              <span class="info-header-icon">🚫</span>
-              <h4 class="info-header-title" style="margin-right: 8px;">不可用考官详情</h4>
-              <span class="unavailable-count-badge">{{ getUnavailableTeachersInRange().length }} 名</span>
-              <span style="font-size: 12px; color: #6b7280; margin-left: 12px;">(点击{{ isUnavailableExpanded ? '收起' : '展开' }})</span>
-            </div>
-            
-            <!-- 统计信息 -->
-            <div class="info-grid" v-show="isUnavailableExpanded">
-              <div class="info-card">
-                <div class="info-card-icon">📅</div>
-                <div class="info-card-content">
-                  <span class="info-card-label">排班周期</span>
-                  <span class="info-card-value">{{ getTotalDays() }} 天</span>
+          <!-- 卡片 3: 不可用考官详情 -->
+          <div class="setting-card" :class="{ 'expanded': isUnavailableExpanded, 'has-items': getUnavailableTeachersInRange().length > 0 }"
+            style="background: #fff; border: 2px solid #e5e7eb; border-radius: 12px; overflow: hidden; transition: all 0.2s;">
+            <!-- 卡片头部 -->
+            <div @click="isUnavailableExpanded = !isUnavailableExpanded" 
+              style="padding: 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; transition: all 0.2s;"
+                  :style="getUnavailableTeachersInRange().length > 0 ? 'background: #fee2e2; color: #dc2626;' : 'background: #d1fae5; color: #059669;'">
+                  {{ getUnavailableTeachersInRange().length > 0 ? '🚫' : '✅' }}
+                </div>
+                <div>
+                  <h4 style="margin: 0; font-size: 15px; color: #1f2937; font-weight: 600;">不可用考官详情</h4>
+                  <p style="margin: 4px 0 0; font-size: 13px; color: #6b7280;">查看当前排班周期内不可用的考官</p>
                 </div>
               </div>
-              
-              <div class="info-card" :class="{ warning: getUnavailableTeachersInRange().length > 0 }">
-                <div class="info-card-icon">🚫</div>
-                <div class="info-card-content">
-                  <span class="info-card-label">不可用考官</span>
-                  <span class="info-card-value">{{ getUnavailableTeachersInRange().length }} 名</span>
-                </div>
-              </div>
-              
-              <div class="info-card success">
-                <div class="info-card-icon">✅</div>
-                <div class="info-card-content">
-                  <span class="info-card-label">可用考官</span>
-                  <span class="info-card-value">{{ getTotalTeachersCount() - getUnavailableTeachersInRange().length }} 名</span>
-                </div>
-              </div>
-              
-              <div class="info-card">
-                <div class="info-card-icon">👥</div>
-                <div class="info-card-content">
-                  <span class="info-card-label">考官总数</span>
-                  <span class="info-card-value">{{ getTotalTeachersCount() }} 名</span>
-                </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span v-if="getUnavailableTeachersInRange().length > 0" 
+                  style="background: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500;">
+                  {{ getUnavailableTeachersInRange().length }} 名
+                </span>
+                <span v-else
+                  style="background: #d1fae5; color: #065f46; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500;">
+                  全部可用
+                </span>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="transition: transform 0.2s; color: #9ca3af;"
+                  :style="isUnavailableExpanded ? 'transform: rotate(180deg);' : ''">
+                  <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
               </div>
             </div>
 
-            <!-- 不可用考官列表 -->
-            <div class="unavailable-teachers-list" v-show="isUnavailableExpanded" v-if="getUnavailableTeachersInRange().length > 0">
-              <div class="unavailable-teachers-header">
-                <span class="details-icon">👤</span>
-                <span class="details-title">考官不可用详情</span>
-              </div>
-              
-              <div class="teacher-cards">
-                <div 
-                  v-for="item in getUnavailableTeachersInRange()" 
-                  :key="item.teacher.id"
-                  class="teacher-unavailable-card"
-                >
-                  <div class="teacher-card-header">
-                    <div class="teacher-info">
-                      <span class="teacher-name">{{ item.teacher.name }}</span>
-                      <span class="teacher-dept">{{ item.teacher.department }}</span>
-                    </div>
-                    <span class="periods-count">{{ item.periods.length }} 个不可用期</span>
+            <!-- 展开内容 -->
+            <div v-show="isUnavailableExpanded" style="border-top: 1px solid #f3f4f6; padding: 16px; background: #fafafa;">
+              <!-- 统计卡片 -->
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;">
+                <div style="background: #fff; border-radius: 10px; padding: 12px; text-align: center; border: 1px solid #e5e7eb;">
+                  <div style="font-size: 20px; margin-bottom: 4px;">📅</div>
+                  <div style="font-size: 12px; color: #6b7280;">排班周期</div>
+                  <div style="font-size: 16px; font-weight: 600; color: #1f2937;">{{ getTotalDays() }}天</div>
+                </div>
+                <div style="background: #fff; border-radius: 10px; padding: 12px; text-align: center; border: 1px solid #e5e7eb;"
+                  :style="getUnavailableTeachersInRange().length > 0 ? 'border-color: #fecaca;' : ''">
+                  <div style="font-size: 20px; margin-bottom: 4px;">🚫</div>
+                  <div style="font-size: 12px; color: #6b7280;">不可用</div>
+                  <div style="font-size: 16px; font-weight: 600;"
+                    :style="getUnavailableTeachersInRange().length > 0 ? 'color: #dc2626;' : 'color: #1f2937;'">
+                    {{ getUnavailableTeachersInRange().length }}名
                   </div>
-                  
-                  <div class="periods-list">
-                    <div 
-                      v-for="period in item.periods" 
-                      :key="period.id"
-                      class="period-item"
-                    >
-                      <div class="period-dates">
-                        <span class="period-icon">📅</span>
-                        <span class="date-range">
-                          {{ period.startDate }} ~ {{ period.endDate }}
-                        </span>
-                        <span class="overlap-days">影响 {{ period.overlapDays }} 天</span>
+                </div>
+                <div style="background: #fff; border-radius: 10px; padding: 12px; text-align: center; border: 1px solid #e5e7eb;">
+                  <div style="font-size: 20px; margin-bottom: 4px;">✅</div>
+                  <div style="font-size: 12px; color: #6b7280;">可用</div>
+                  <div style="font-size: 16px; font-weight: 600; color: #059669;">
+                    {{ getTotalTeachersCount() - getUnavailableTeachersInRange().length }}名
+                  </div>
+                </div>
+                <div style="background: #fff; border-radius: 10px; padding: 12px; text-align: center; border: 1px solid #e5e7eb;">
+                  <div style="font-size: 20px; margin-bottom: 4px;">👥</div>
+                  <div style="font-size: 12px; color: #6b7280;">总数</div>
+                  <div style="font-size: 16px; font-weight: 600; color: #1f2937;">{{ getTotalTeachersCount() }}名</div>
+                </div>
+              </div>
+
+              <!-- 考官列表 -->
+              <div v-if="getUnavailableTeachersInRange().length > 0">
+                <div v-for="item in getUnavailableTeachersInRange()" :key="item.teacher.id"
+                  style="background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 12px;">
+                  <!-- 考官信息头部 -->
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #f3f4f6;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                      <div style="width: 36px; height: 36px; background: #fee2e2; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px;">👤</div>
+                      <div>
+                        <div style="font-size: 15px; font-weight: 600; color: #1f2937;">{{ item.teacher.name }}</div>
+                        <div style="font-size: 13px; color: #6b7280;">{{ item.teacher.department }}</div>
                       </div>
-                      <div class="period-reason" v-if="period.reason">
-                        <span class="reason-icon">💬</span>
-                        <span class="reason-text">{{ period.reason }}</span>
-                      </div>
+                    </div>
+                    <span style="background: #fee2e2; color: #991b1b; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500;">
+                      {{ item.periods.length }} 个不可用期
+                    </span>
+                  </div>
+                  <!-- 不可用期列表 -->
+                  <div v-for="period in item.periods" :key="period.id"
+                    style="background: #fafafa; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #4b5563;">
+                      <span>📅</span>
+                      <span style="font-weight: 500;">{{ period.startDate }} ~ {{ period.endDate }}</span>
+                      <span style="background: #fecaca; color: #991b1b; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; margin-left: auto;">
+                        影响{{ period.overlapDays }}天
+                      </span>
+                    </div>
+                    <div v-if="period.reason" style="margin-top: 6px; font-size: 13px; color: #6b7280; padding-left: 24px;">
+                      💬 {{ period.reason }}
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
-            
-            <!-- 无不可用考官提示 -->
-            <div v-else v-show="isUnavailableExpanded" class="no-unavailable-teachers">
-              <span class="no-data-icon">✨</span>
-              <p class="no-data-text">当前排班周期内所有考官均可用</p>
-              <p class="no-data-hint">可以安心进行排班</p>
-            </div>
 
-            <!-- 容量评估 - 暂时隐藏，待排班功能稳定后重新启用 -->
+              <!-- 空状态 -->
+              <div v-else style="text-align: center; padding: 32px;">
+                <div style="width: 64px; height: 64px; margin: 0 auto 16px; background: #d1fae5; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px;">
+                  ✨</div>
+                <p style="margin: 0; font-size: 15px; color: #059669; font-weight: 500;">当前排班周期内所有考官均可用</p>
+                <p style="margin: 8px 0 0; font-size: 13px; color: #6b7280;">可以安心进行排班</p>
+              </div>
+            </div>
+          </div>
+          <!-- 设置卡片组结束 -->
+
+          <!-- 容量评估 - 暂时隐藏，待排班功能稳定后重新启用 -->
             <!-- 
             <div v-if="studentList.length > 0" class="capacity-assessment">
               <div class="capacity-header">
@@ -1375,93 +1552,465 @@
 
         </div>
 
-        <!-- 步骤3: 确认执行 -->
+        <!-- 步骤3: 智能评估 -->
         <div v-if="currentStep === 3" class="step-content">
           <div class="step-title">
-            <h3>确认并执行排班</h3>
-            <p class="step-description">检查配置信息，确认无误后开始排班</p> 
+            <div class="step-icon">💡</div>
+            <h3>第三步：智能评估分析</h3>
+            <p class="step-description">系统综合分析学员数量、考官资源、日期范围等因素，评估排班可行性并提供优化建议</p> 
           </div>
           
-          <div class="summary-section">
-            <div class="summary-item">
-              <h4>学员信息</h4>
-              <p>共{{ studentList.length }} 名学员</p>
-              <p v-if="uploadedFile">文件: {{ uploadedFile.name }}</p>
-            </div>
+          <div class="smart-assessment-section" style="padding: 24px; background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%); border-radius: 20px; border: 1px solid #e2e8f0;">
             
-            <div class="summary-item">
-              <h4>考试日期</h4>
-              <p v-if="examStartDateStr && examEndDateStr">
-                {{ examStartDateStr }} 到 {{ examEndDateStr }}
-              </p>
-              <div class="date-statistics">
-                <p>共{{ getDateRangeStatistics().totalDays }} 天</p>
-                <p class="workday-detail">
-                  工作日：{{ getDateRangeStatistics().workdays }} 天
-                  <span v-if="getDateRangeStatistics().adjustedWorkdays > 0" class="adjusted-workday">
-                    (含调休{{ getDateRangeStatistics().adjustedWorkdays }} 天)
-                  </span>
-                </p>
-                <p v-if="getDateRangeStatistics().holidays > 0" class="holiday-warning">
-                  节假日：{{ getDateRangeStatistics().holidays }} 天⚠️
-                </p>
-                <p v-if="getDateRangeStatistics().weekends > 0" class="weekend-info">
-                  周末：{{ getDateRangeStatistics().weekends }} 天
-                </p>
+            <!-- 核心状态卡片 - 使用整体背景色区分状态 -->
+            <div class="status-card" :class="getAssessmentResult().statusClass" style="margin-bottom: 24px; border-radius: 16px; padding: 24px; position: relative; overflow: hidden;">
+              <!-- 状态指示条 -->
+              <div class="status-indicator-bar" :style="{ background: getAssessmentResult().color }"></div>
+              
+              <div style="display: flex; align-items: flex-start; gap: 20px; position: relative; z-index: 1;">
+                <!-- 状态图标 -->
+                <div class="status-icon-wrapper" :style="{ background: getAssessmentResult().lightColor, color: getAssessmentResult().color }">
+                  <svg v-if="getAssessmentResult().status === 'success'" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                  <svg v-else-if="getAssessmentResult().status === 'error'" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="15" y1="9" x2="9" y2="15"></line>
+                    <line x1="9" y1="9" x2="15" y2="15"></line>
+                  </svg>
+                  <svg v-else-if="getAssessmentResult().status === 'warning'" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                  </svg>
+                  <svg v-else width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                  </svg>
+                </div>
+                
+                <!-- 状态信息 -->
+                <div style="flex: 1;">
+                  <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                    <h4 :style="{ color: getAssessmentResult().color, margin: 0, fontSize: '20px', fontWeight: 700 }">
+                      {{ getAssessmentResult().title }}
+                    </h4>
+                    <span class="status-badge" :style="{ background: getAssessmentResult().lightColor, color: getAssessmentResult().color }">
+                      {{ getAssessmentResult().badgeText }}
+                    </span>
+                  </div>
+                  <p style="margin: 0; font-size: 15px; color: #475569; line-height: 1.6;">
+                    {{ getAssessmentResult().description }}
+                  </p>
+                </div>
               </div>
             </div>
             
-            <div class="summary-item">
-              <h4>算法选择</h4>
-              <p>{{ algorithmOptions.find((opt: any) => opt.value === selectedAlgorithm)?.label || '未选择' }}</p>
-              <p class="algorithm-desc">{{ algorithmOptions.find((opt: any) => opt.value === selectedAlgorithm)?.description || '' }}</p>
+            <!-- 关键指标卡片组 -->
+            <div class="metrics-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+              <!-- 学员数量 -->
+              <div class="metric-card" style="background: white; border-radius: 12px; padding: 20px; border: 2px solid #e0e7ff; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.08);">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                  <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                      <circle cx="9" cy="7" r="4"></circle>
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                  </div>
+                  <span style="font-size: 13px; color: #64748b; font-weight: 500;">待排班学员</span>
+                </div>
+                <div style="font-size: 36px; font-weight: 800; color: #1e40af; line-height: 1;">{{ studentList.length }}</div>
+                <div style="font-size: 12px; color: #94a3b8; margin-top: 6px;">需要安排考试</div>
+              </div>
+              
+              <!-- 可用考官 -->
+              <div class="metric-card" style="background: white; border-radius: 12px; padding: 20px; border: 2px solid #d1fae5; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.08);">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                  <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                      <circle cx="12" cy="7" r="4"></circle>
+                    </svg>
+                  </div>
+                  <span style="font-size: 13px; color: #64748b; font-weight: 500;">可用考官</span>
+                </div>
+                <div style="font-size: 36px; font-weight: 800; color: #047857; line-height: 1;">{{ getTotalTeachersCount() }}</div>
+                <div style="font-size: 12px; color: #94a3b8; margin-top: 6px;">当前可用</div>
+              </div>
+              
+              <!-- 可用工作日 -->
+              <div class="metric-card" style="background: white; border-radius: 12px; padding: 20px; border: 2px solid #e9d5ff; box-shadow: 0 2px 8px rgba(139, 92, 246, 0.08);">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                  <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                      <line x1="16" y1="2" x2="16" y2="6"></line>
+                      <line x1="8" y1="2" x2="8" y2="6"></line>
+                      <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                  </div>
+                  <span style="font-size: 13px; color: #64748b; font-weight: 500;">可用工作日</span>
+                </div>
+                <div style="font-size: 36px; font-weight: 800; color: #6d28d9; line-height: 1;">{{ getDateRangeStatistics().workdays }}</div>
+                <div style="font-size: 12px; color: #94a3b8; margin-top: 6px;">可用于排班</div>
+              </div>
             </div>
             
-            <div class="summary-item">
-              <h4 class="constraint-header" @click="isConstraintExpanded = !isConstraintExpanded" style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
-                <span class="expand-icon" :style="{ transform: isConstraintExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }">▶</span>
-                约束配置
-                <span style="font-size: 12px; color: #6b7280; font-weight: normal;">(点击{{ isConstraintExpanded ? '收起' : '展开' }}详情)</span>
-              </h4>
-              <div class="constraint-summary" v-show="isConstraintExpanded" style="margin-top: 12px;">
-                <div class="summary-group">
-                  <h5>硬约束 (8/8) - 统一权重: 1000000</h5>
-                  <ul>
-                    <li>HC1: 法定节假日不安排考试</li>
-                    <li>HC2: 考官1与学员同科室</li>
-                    <li>HC3: 考官执勤白班不能安排考试</li>
-                    <li>HC4: 每名考官每天只能监考一名考生</li>
-                    <li>HC5: 考生执勤白班不能安排考试</li>
-                    <li>HC6: 考生需要在连续两天完成考试</li>
-                    <li>HC7: 必须有考官1和考官2两名考官，且不能同科室</li>
-                    <li>HC8: 备份考官不能与考官1和考官2是同一人</li>
-                  </ul>
+
+            
+            <!-- 最佳日期建议 -->
+            <!-- 🔧 推荐考试日期范围（增强版） -->
+            <div v-if="getRecommendedDateRange()" class="recommended-dates" 
+              :style="{
+                background: getRecommendedDateRange()?.status === 'insufficient' ? 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)' : 
+                          getRecommendedDateRange()?.status === 'suboptimal' ? 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)' : 
+                          'linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%)',
+                border: getRecommendedDateRange()?.status === 'insufficient' ? '2px solid #ef4444' : 
+                        getRecommendedDateRange()?.status === 'suboptimal' ? '2px solid #f59e0b' : 
+                        '2px solid #3b82f6',
+                borderRadius: '16px',
+                padding: '24px',
+                marginBottom: '24px',
+                position: 'relative',
+                overflow: 'hidden'
+              }">
+              <!-- 装饰背景 -->
+              <div style="position: absolute; top: -20px; right: -20px; width: 100px; height: 100px; border-radius: 50%;"
+                :style="{ 
+                  background: getRecommendedDateRange()?.status === 'insufficient' ? 'rgba(239, 68, 68, 0.1)' : 
+                             getRecommendedDateRange()?.status === 'suboptimal' ? 'rgba(245, 158, 11, 0.1)' : 
+                             'rgba(59, 130, 246, 0.1)'
+                }">
+              </div>
+              
+              <div style="position: relative; z-index: 1;">
+                <!-- 标题 -->
+                <h4 style="margin: 0 0 12px; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px;"
+                  :style="{ color: getRecommendedDateRange()?.status === 'insufficient' ? '#dc2626' : 
+                                  getRecommendedDateRange()?.status === 'suboptimal' ? '#b45309' : 
+                                  '#1e40af' }">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                    :style="{ stroke: getRecommendedDateRange()?.status === 'insufficient' ? '#ef4444' : 
+                                     getRecommendedDateRange()?.status === 'suboptimal' ? '#f59e0b' : 
+                                     '#3b82f6' }">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M12 16v-4M12 8h.01"></path>
+                  </svg>
+                  {{ getRecommendedDateRange()?.status === 'insufficient' ? '⚠️ 日期范围严重不足' : 
+                     getRecommendedDateRange()?.status === 'suboptimal' ? '💡 日期范围可优化' : 
+                     '✅ 推荐考试日期范围' }}
+                </h4>
+                
+                <!-- 说明文字 -->
+                <p style="margin: 0 0 16px; font-size: 14px;"
+                  :style="{ color: getRecommendedDateRange()?.status === 'insufficient' ? '#991b1b' : 
+                                  getRecommendedDateRange()?.status === 'suboptimal' ? '#92400e' : 
+                                  '#1e3a8a' }">
+                  {{ getRecommendedDateRange()?.message }}
+                </p>
+                
+                <!-- 推荐日期卡片 -->
+                <div style="background: white; border-radius: 12px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 12px;">
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center;"
+                      :style="{ background: getRecommendedDateRange()?.status === 'insufficient' ? '#fef2f2' : 
+                                        getRecommendedDateRange()?.status === 'suboptimal' ? '#fffbeb' : 
+                                        '#dbeafe' }">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                        :style="{ stroke: getRecommendedDateRange()?.status === 'insufficient' ? '#ef4444' : 
+                                         getRecommendedDateRange()?.status === 'suboptimal' ? '#f59e0b' : 
+                                         '#3b82f6' }">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                      </svg>
+                    </div>
+                    <div>
+                      <div style="font-size: 16px; font-weight: 700;"
+                        :style="{ color: getRecommendedDateRange()?.status === 'insufficient' ? '#dc2626' : 
+                                        getRecommendedDateRange()?.status === 'suboptimal' ? '#b45309' : 
+                                        '#1e40af' }">
+                        {{ getRecommendedDateRange()?.display }}
+                      </div>
+                      <div style="font-size: 13px; color: #6b7280; margin-top: 4px;">
+                        共 {{ getRecommendedDateRange()?.recommendedWorkdays }} 个工作日
+                      </div>
+                    </div>
+                  </div>
+                  <button 
+                    @click="applyRecommendedDateRange()"
+                    style="padding: 10px 20px; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s;"
+                    :style="{ background: getRecommendedDateRange()?.status === 'insufficient' ? '#ef4444' : 
+                                    getRecommendedDateRange()?.status === 'suboptimal' ? '#f59e0b' : 
+                                    '#3b82f6' }"
+                    onmouseover="this.style.opacity='0.9'; this.style.transform='translateY(-1px)';"
+                    onmouseout="this.style.opacity='1'; this.style.transform='translateY(0)';"
+                  >
+                    应用建议
+                  </button>
                 </div>
                 
-                <div class="summary-group">
-                  <h5>软约束 ({{ getActiveSoftConstraintsCount() }}/11)</h5>
-                  <ul>
-                    <li v-if="constraints.nightShiftTeacherPriority">SC1: 晚班考官优先级最高权重 (权重: 150)</li>
-                    <li v-if="constraints.examiner2ProfessionalMatch">SC2: 考官2专业匹配 (权重: 100)</li>
-                    <li v-if="constraints.firstRestDayTeacherPriority">SC3: 休息第一天考官优先级次高权重 (权重: 120)</li>
-                    <li v-if="constraints.backupExaminerProfessionalMatch">SC4: 备份考官专业匹配 (权重: 80)</li>
-                    <li v-if="constraints.secondRestDayTeacherPriority">SC5: 休息第二天考官优先级中等权重 (权重: 40)</li>
-                    <li v-if="constraints.examiner2AlternativeOption">SC6: 考官2备选方案 (权重: 50)</li>
-                    <li v-if="constraints.adminTeacherPriority">SC7: 行政班考官优先级最低权重 (权重: 60)</li>
-                    <li v-if="constraints.backupExaminerAlternativeOption">SC8: 备份考官备选方案 (权重: 30)</li>
-                    <li v-if="constraints.allowDept37CrossUse">SC9: 区域协作鼓励 (权重: 20)</li>
-                    <li v-if="constraints.balanceWorkload">SC10: 工作量均衡 (权重: 400)</li>
-                    <li v-if="constraints.preferLaterDates">SC11: 日期分配均衡 (权重: 50)</li>
+                <!-- 对比信息 -->
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; font-size: 12px;">
+                  <div style="background: rgba(255,255,255,0.5); border-radius: 8px; padding: 10px; text-align: center;"
+                    :style="{ border: getRecommendedDateRange()?.status === 'insufficient' ? '1px solid #fecaca' : 
+                                    getRecommendedDateRange()?.status === 'suboptimal' ? '1px solid #fcd34d' : 
+                                    '1px solid #bfdbfe' }">
+                    <div style="color: #6b7280; margin-bottom: 2px;">当前工作日</div>
+                    <div style="font-weight: 700; font-size: 14px;"
+                      :style="{ color: getRecommendedDateRange()?.currentWorkdays < getRecommendedDateRange()?.requiredWorkdays ? '#dc2626' : 
+                                      getRecommendedDateRange()?.currentWorkdays < getRecommendedDateRange()?.recommendedWorkdays ? '#b45309' : 
+                                      '#047857' }">
+                      {{ getRecommendedDateRange()?.currentWorkdays }} 天
+                    </div>
+                  </div>
+                  <div style="background: rgba(255,255,255,0.5); border-radius: 8px; padding: 10px; text-align: center; border: 1px solid #d1d5db;">
+                    <div style="color: #6b7280; margin-bottom: 2px;">最低需要</div>
+                    <div style="font-weight: 700; font-size: 14px; color: #1f2937;">
+                      {{ getRecommendedDateRange()?.requiredWorkdays }} 天
+                    </div>
+                  </div>
+                  <div style="background: rgba(255,255,255,0.5); border-radius: 8px; padding: 10px; text-align: center; border: 1px solid #d1d5db;">
+                    <div style="color: #6b7280; margin-bottom: 2px;">建议工作日</div>
+                    <div style="font-weight: 700; font-size: 14px; color: #1f2937;">
+                      {{ getRecommendedDateRange()?.recommendedWorkdays }} 天
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 操作选项 -->
+            <div class="action-options" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+              <button 
+                @click="goToStep(2)"
+                style="padding: 20px; background: white; border: 2px solid #e2e8f0; border-radius: 14px; cursor: pointer; text-align: center; transition: all 0.2s;"
+                onmouseover="this.style.borderColor='#cbd5e1'; this.style.background='#f8fafc'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.05)';"
+                onmouseout="this.style.borderColor='#e2e8f0'; this.style.background='white'; this.style.transform='translateY(0)'; this.style.boxShadow='none';"
+              >
+                <div style="width: 48px; height: 48px; background: #f1f5f9; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px;">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                  </svg>
+                </div>
+                <div style="font-size: 15px; font-weight: 600; color: #374151; margin-bottom: 4px;">返回修改日期</div>
+                <div style="font-size: 12px; color: #6b7280;">重新选择考试日期范围</div>
+              </button>
+              
+              <button 
+                @click="goToStep(1)"
+                style="padding: 20px; background: white; border: 2px solid #e2e8f0; border-radius: 14px; cursor: pointer; text-align: center; transition: all 0.2s;"
+                onmouseover="this.style.borderColor='#cbd5e1'; this.style.background='#f8fafc'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.05)';"
+                onmouseout="this.style.borderColor='#e2e8f0'; this.style.background='white'; this.style.transform='translateY(0)'; this.style.boxShadow='none';"
+              >
+                <div style="width: 48px; height: 48px; background: #f1f5f9; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px;">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                  </svg>
+                </div>
+                <div style="font-size: 15px; font-weight: 600; color: #374151; margin-bottom: 4px;">调整人员配置</div>
+                <div style="font-size: 12px; color: #6b7280;">修改学员或考官数量</div>
+              </button>
+              
+              <button 
+                @click="nextStep()"
+                :disabled="!isAssessmentPassable()"
+                style="padding: 20px; border: none; border-radius: 14px; cursor: pointer; text-align: center; transition: all 0.2s;"
+                :style="isAssessmentPassable() 
+                  ? 'background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%); opacity: 1;' 
+                  : 'background: #e2e8f0; opacity: 0.6; cursor: not-allowed;'"
+                onmouseover="if(!this.disabled) { this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 20px rgba(59, 130, 246, 0.3)'; }"
+                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';"
+              >
+                <div style="width: 48px; height: 48px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px;">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12h14M12 5l7 7-7 7"></path>
+                  </svg>
+                </div>
+                <div style="font-size: 15px; font-weight: 700; color: white; margin-bottom: 4px;">继续排班</div>
+                <div style="font-size: 12px; color: rgba(255,255,255,0.85);">确认配置并开始排班</div>
+              </button>
+            </div>
+            
+            <!-- 风险提示 -->
+            <div v-if="!isAssessmentPassable()" style="margin-top: 16px; padding: 16px 20px; background: #fef2f2; border: 2px solid #fecaca; border-radius: 12px; display: flex; align-items: center; gap: 12px;">
+              <div style="width: 36px; height: 36px; background: #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                  <line x1="12" y1="9" x2="12" y2="13"></line>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+              </div>
+              <div>
+                <div style="font-size: 14px; font-weight: 700; color: #dc2626;">当前配置存在风险</div>
+                <div style="font-size: 13px; color: #7f1d1d;">建议先调整配置后再继续排班</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 步骤4: 确认执行 -->
+        <div v-if="currentStep === 4" class="step-content">
+          <div class="step-title">
+            <div class="step-icon">✅</div>
+            <h3>第四步：确认并执行排班</h3>
+            <p class="step-description">核对所有配置信息，确认无误后点击开始排班，系统将自动生成最优排班方案</p> 
+          </div>
+          
+          <!-- 配置摘要卡片 -->
+          <div class="summary-cards" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 24px;">
+            <!-- 学员信息卡片 -->
+            <div class="summary-card" style="background: white; border: 2px solid #e0e7ff; border-radius: 12px; padding: 20px;">
+              <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                  </svg>
+                </div>
+                <h4 style="margin: 0; font-size: 16px; font-weight: 600; color: #1f2937;">学员信息</h4>
+              </div>
+              <p style="margin: 0; font-size: 24px; font-weight: 700; color: #3b82f6;">{{ studentList.length }} <span style="font-size: 14px; font-weight: 500; color: #6b7280;">名学员</span></p>
+              <p v-if="uploadedFile" style="margin: 8px 0 0; font-size: 13px; color: #6b7280;">数据来源：{{ uploadedFile.name }}</p>
+            </div>
+            
+            <!-- 考试日期卡片 -->
+            <div class="summary-card" style="background: white; border: 2px solid #d1fae5; border-radius: 12px; padding: 20px;">
+              <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                  </svg>
+                </div>
+                <h4 style="margin: 0; font-size: 16px; font-weight: 600; color: #1f2937;">考试日期</h4>
+              </div>
+              <p v-if="examStartDateStr && examEndDateStr" style="margin: 0; font-size: 18px; font-weight: 600; color: #047857;">
+                {{ examStartDateStr }} <span style="color: #9ca3af; font-weight: 400;">至</span> {{ examEndDateStr }}
+              </p>
+              <div style="margin-top: 8px; font-size: 13px; color: #6b7280;">
+                <span style="display: inline-flex; align-items: center; gap: 4px; margin-right: 12px;">
+                  <span style="width: 6px; height: 6px; background: #10b981; border-radius: 50%;"></span>
+                  {{ getDateRangeStatistics().workdays }} 个工作日
+                </span>
+                <span v-if="getDateRangeStatistics().holidays > 0" style="display: inline-flex; align-items: center; gap: 4px; color: #f59e0b;">
+                  <span style="width: 6px; height: 6px; background: #f59e0b; border-radius: 50%;"></span>
+                  {{ getDateRangeStatistics().holidays }} 天节假日
+                </span>
+              </div>
+            </div>
+            
+            <!-- 考官资源卡片 -->
+            <div class="summary-card" style="background: white; border: 2px solid #e9d5ff; border-radius: 12px; padding: 20px;">
+              <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                </div>
+                <h4 style="margin: 0; font-size: 16px; font-weight: 600; color: #1f2937;">考官资源</h4>
+              </div>
+              <p style="margin: 0; font-size: 24px; font-weight: 700; color: #7c3aed;">{{ getTotalTeachersCount() }} <span style="font-size: 14px; font-weight: 500; color: #6b7280;">名考官</span></p>
+              <p style="margin: 8px 0 0; font-size: 13px; color: #6b7280;">每位学员需要2名考官监考</p>
+            </div>
+            
+            <!-- 排班算法卡片 -->
+            <div class="summary-card" style="background: white; border: 2px solid #fef3c7; border-radius: 12px; padding: 20px;">
+              <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                    <path d="M2 17l10 5 10-5"></path>
+                    <path d="M2 12l10 5 10-5"></path>
+                  </svg>
+                </div>
+                <h4 style="margin: 0; font-size: 16px; font-weight: 600; color: #1f2937;">排班算法</h4>
+              </div>
+              <p style="margin: 0; font-size: 16px; font-weight: 600; color: #b45309;">{{ algorithmOptions.find((opt: any) => opt.value === selectedAlgorithm)?.label || 'OptaPlanner 经典算法' }}</p>
+              <p style="margin: 8px 0 0; font-size: 13px; color: #6b7280;">{{ algorithmOptions.find((opt: any) => opt.value === selectedAlgorithm)?.description || '基于约束求解的智能排班算法' }}</p>
+            </div>
+          </div>
+          
+          <!-- 约束配置折叠面板 -->
+          <div class="constraint-panel" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; margin-bottom: 24px;">
+            <div class="constraint-header" @click="isConstraintExpanded = !isConstraintExpanded" 
+              style="padding: 16px 20px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; background: white;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 36px; height: 36px; background: #f3f4f6; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                    <path d="M2 17l10 5 10-5"></path>
+                    <path d="M2 12l10 5 10-5"></path>
+                  </svg>
+                </div>
+                <div>
+                  <h4 style="margin: 0; font-size: 15px; font-weight: 600; color: #1f2937;">约束配置详情</h4>
+                  <p style="margin: 4px 0 0; font-size: 13px; color: #6b7280;">8项硬约束 + {{ getActiveSoftConstraintsCount() }}项软约束已配置</p>
+                </div>
+              </div>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="transition: transform 0.2s; color: #9ca3af;"
+                :style="isConstraintExpanded ? 'transform: rotate(180deg);' : ''">
+                <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div v-show="isConstraintExpanded" style="padding: 20px; border-top: 1px solid #e5e7eb;">
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+                <div class="constraint-group">
+                  <h5 style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #dc2626; display: flex; align-items: center; gap: 6px;">
+                    <span style="width: 8px; height: 8px; background: #dc2626; border-radius: 50%;"></span>
+                    硬约束 (必须满足)
+                  </h5>
+                  <ul style="margin: 0; padding: 0; list-style: none; font-size: 13px; color: #4b5563;">
+                    <li style="padding: 4px 0; border-bottom: 1px dashed #e5e7eb;">✓ 法定节假日不安排考试</li>
+                    <li style="padding: 4px 0; border-bottom: 1px dashed #e5e7eb;">✓ 考官1必须与学员同科室</li>
+                    <li style="padding: 4px 0; border-bottom: 1px dashed #e5e7eb;">✓ 考官执勤白班不能安排考试</li>
+                    <li style="padding: 4px 0; border-bottom: 1px dashed #e5e7eb;">✓ 每名考官每天只能监考一名考生</li>
+                    <li style="padding: 4px 0; border-bottom: 1px dashed #e5e7eb;">✓ 考生执勤白班不能安排考试</li>
+                    <li style="padding: 4px 0; border-bottom: 1px dashed #e5e7eb;">✓ 考生需连续两天完成考试</li>
+                    <li style="padding: 4px 0; border-bottom: 1px dashed #e5e7eb;">✓ 必须有考官1和考官2，且不同科室</li>
+                    <li style="padding: 4px 0;">✓ 备份考官不能与考官1/2是同一人</li>
                   </ul>
                 </div>
-                
-                <div class="summary-group">
-                  <h5>高级配置</h5>
-                  <ul>
-                    <li>算法: OptaPlanner 经典算法</li>
-                    <li>智能时间分散优化: {{ constraints.enableTimeSpreadOptimization ? '已启用' : '已禁用' }}</li>
-                    <li>动态权重调整: {{ constraints.enableDynamicWeightAdjustment ? '已启用' : '已禁用' }}</li>
-                    <li>智能冲突解决: {{ constraints.enableIntelligentConflictResolution ? '已启用' : '已禁用' }}</li>
+                <div class="constraint-group">
+                  <h5 style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #f59e0b; display: flex; align-items: center; gap: 6px;">
+                    <span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span>
+                    软约束 (优先满足)
+                  </h5>
+                  <ul style="margin: 0; padding: 0; list-style: none; font-size: 13px; color: #4b5563;">
+                    <li v-if="constraints.nightShiftTeacherPriority" style="padding: 4px 0; color: #10b981;">✓ 晚班考官优先级最高</li>
+                    <li v-if="constraints.examiner2ProfessionalMatch" style="padding: 4px 0; color: #10b981;">✓ 考官2专业匹配</li>
+                    <li v-if="constraints.firstRestDayTeacherPriority" style="padding: 4px 0; color: #10b981;">✓ 休息第一天考官优先级次高</li>
+                    <li v-if="constraints.backupExaminerProfessionalMatch" style="padding: 4px 0; color: #10b981;">✓ 备份考官专业匹配</li>
+                    <li v-if="constraints.secondRestDayTeacherPriority" style="padding: 4px 0; color: #10b981;">✓ 休息第二天考官优先级中等</li>
+                    <li v-if="constraints.balanceWorkload" style="padding: 4px 0; color: #10b981;">✓ 工作量均衡</li>
+                    <li v-if="constraints.preferLaterDates" style="padding: 4px 0; color: #10b981;">✓ 日期分配均衡</li>
+                    <li v-if="!constraints.nightShiftTeacherPriority && !constraints.examiner2ProfessionalMatch && !constraints.firstRestDayTeacherPriority" style="padding: 4px 0; color: #9ca3af;">使用默认软约束配置</li>
+                  </ul>
+                </div>
+                <div class="constraint-group">
+                  <h5 style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #3b82f6; display: flex; align-items: center; gap: 6px;">
+                    <span style="width: 8px; height: 8px; background: #3b82f6; border-radius: 50%;"></span>
+                    高级配置
+                  </h5>
+                  <ul style="margin: 0; padding: 0; list-style: none; font-size: 13px; color: #4b5563;">
+                    <li style="padding: 4px 0;">算法引擎：OptaPlanner</li>
+                    <li style="padding: 4px 0;">时间分散优化：{{ constraints.enableTimeSpreadOptimization ? '已启用' : '未启用' }}</li>
+                    <li style="padding: 4px 0;">动态权重调整：{{ constraints.enableDynamicWeightAdjustment ? '已启用' : '未启用' }}</li>
+                    <li style="padding: 4px 0;">智能冲突解决：{{ constraints.enableIntelligentConflictResolution ? '已启用' : '未启用' }}</li>
+                    <li style="padding: 4px 0;">周末排班：{{ allowWeekendScheduling ? '允许' : '不允许' }}</li>
                   </ul>
                 </div>
               </div>
@@ -1507,7 +2056,7 @@
           <div class="nav-spacer"></div>
           
           <button 
-            v-if="currentStep < 3" 
+            v-if="currentStep < 4" 
             class="nav-btn nav-btn-primary" 
             @click="nextStep"
             :disabled="!canProceedToNextStep()"
@@ -1515,7 +2064,7 @@
             下一步         </button>
           
           <button 
-            v-if="currentStep === 3" 
+            v-if="currentStep === 4" 
             class="nav-btn nav-btn-success" 
             @click="startScheduling"
             :disabled="isScheduling || !canProceedToNextStep()"
@@ -1730,8 +2279,7 @@ import {
   type TeacherInfo,
   type SchedulingResult
 } from '../utils/types'
-import { storageService, type ScheduleResultRecord } from '../utils/storageService'
-import { unifiedStorageService } from '../services/unifiedStorageService'
+import { storageService, type ScheduleResultRecord } from '../services/storageService'
 import { FrontendDisplayFixer } from '../utils/frontendDisplayFixer'
 // 移除不存在的cacheManager导入，相关功能已集成到unifiedStorageService
 import { DataValidationService } from '../services/dataValidationService'
@@ -1753,7 +2301,18 @@ import { excelExportService } from '../services/excelExportService'
 import type { ScheduleSnapshot } from '../types/index'
 import { DateUtils as dateUtils } from '../utils/dateUtils'
 import { assignmentDataService, convertAssignmentToSchedule } from '../services/assignmentDataService'
-import { normalizeDeptToFull } from '../utils/departmentNormalizer'
+import { normalizeDeptToFull, normalizeDeptToShort } from '../utils/departmentNormalizer'
+import { 
+  optimizedAssessmentService,
+  type OptimizedAssessmentResultType,
+  type BottleneckAnalysisType,
+  type DateRangeRecommendationType
+} from '../services/optimizedAssessmentService'
+import {
+  preciseAssessmentService,
+  type PreciseAssessmentResult,
+  type DepartmentCapacity
+} from '../services/preciseAssessmentService'
 
 // 🆕 科室名称显示转换函数（统一显示为"区域X室"格式）
 const displayDepartment = (dept: string | undefined | null): string => {
@@ -1765,7 +2324,7 @@ const displayDepartment = (dept: string | undefined | null): string => {
 const route = useRoute()
 
 // 应用版本号 - 从 package.json 自动读取
-const appVersion = ref(import.meta.env.VITE_APP_VERSION || '6.1.0')
+const appVersion = ref(import.meta.env.VITE_APP_VERSION || '0.0.0')
 
 // 响应式数组
 const sidebarCollapsed = ref(false)
@@ -1832,6 +2391,11 @@ const partialRescheduleSessionId = ref('')  // 会话ID
 
 // 🔥 深度重排功能相关状态
 const isDeepRescheduling = ref(false)  // 是否正在深度重排
+
+// 🔧 局部重排功能相关状态（新增）
+const isLocalRescheduling = ref(false)  // 是否正在局部重排
+const localRescheduleProgress = ref('')  // 局部重排进度消息
+const localRescheduleAttemptDays = ref(2)  // 当前尝试的扩展天数
 
 // 计算未固定排班数量
 const unpinnedCount = computed(() => {
@@ -2035,7 +2599,9 @@ const currentStep = ref(1)
       allowDept37CrossUse: true,                 // SC9: 区域协作鼓励
       balanceWorkload: true,                     // SC10: 工作量均衡
       preferLaterDates: true,                    // SC11: 日期分配均衡
-      
+      avoidWeekendSchedulingEnabled: true,       // SC16: 智能周末降级策略（避免周末排班）
+      preferNightShiftOnWeekendEnabled: true,    // SC17: 周末优先晚班考官策略
+
       // 高级配置选项
       enableTimeSpreadOptimization: true,        // 智能时间分散优化
       enableDynamicWeightAdjustment: true,       // 动态权重调整
@@ -2872,9 +3438,34 @@ const modalRef = ref<HTMLElement | null>(null)
 // 排班相关数据
 const isScheduling = ref(false)
 const isConstraintExpanded = ref(false) // 约束配置折叠状态，默认折叠
-const isUnavailableExpanded = ref(false) // 不可用考官详情折叠状态，默认折叠
+const isAnalysisExpanded = ref(false) // 详细分析折叠状态，默认折叠
+const isSuggestionsExpanded = ref(true) // 改进建议折叠状态，默认展开（建议比较重要）
+const isUnavailableExpanded = ref(true) // 不可用考官详情默认展开，方便用户查看
+
+// 周末排班开关
+const allowWeekendScheduling = ref(false) // 默认不允许周末排班
+
+// 不可用日期设置
+const isUnavailableDatesExpanded = ref(true) // 不可用日期设置默认展开
+const unavailableDateMode = ref<'single' | 'range'>('single') // 添加模式：单日/范围
+const newUnavailableDate = ref('') // 新增不可用日期
+const newUnavailableEndDate = ref('') // 新增不可用结束日期（范围模式）
+const newUnavailableReason = ref('') // 不可用原因
+const customUnavailableDates = ref<Array<{date: string; endDate?: string; displayDate: string; reason?: string}>>([]) // 自定义不可用日期列表
 const schedulingResult = ref<SchedulingResult | null>(null)
 const schedulingError = ref('')
+
+// 🚀 深度优化评估缓存状态
+const optimizedAssessmentCache = ref<OptimizedAssessmentResultType | null>(null)
+const isOptimizedAssessmentLoading = ref(false)
+const lastAssessmentTimestamp = ref(0)
+const ASSESSMENT_CACHE_TTL = 5000 // 5秒内不重新计算
+
+// 🎯 精确评估缓存状态（完全模拟OptaPlanner约束）
+const preciseAssessmentCache = ref<PreciseAssessmentResult | null>(null)
+const isPreciseAssessmentLoading = ref(false)
+const lastPreciseAssessmentTimestamp = ref(0)
+const PRECISE_ASSESSMENT_CACHE_TTL = 5000
 const solvingModeRef = ref('fast')  // ⚡ 改为fast模式，大幅提升速度
 
 // 🚀 智能进度管理器（使用新的useSmartProgress）
@@ -3190,7 +3781,9 @@ const handleConstraintConfigApply = async (config: { constraints: Record<string,
         firstRestDayTeacherPriority: config.constraints.preferFirstRestDayTeachers ?? true,
         secondRestDayTeacherPriority: config.constraints.preferSecondRestDayTeachers ?? false,
         adminTeacherPriority: config.constraints.adminTeacherPriority ?? false,
-        nightShiftTeacherRecommendedDepartmentBonus: config.constraints.nightShiftTeacherRecommendedDepartmentBonus ?? true
+        nightShiftTeacherRecommendedDepartmentBonus: config.constraints.nightShiftTeacherRecommendedDepartmentBonus ?? true,
+        avoidWeekendSchedulingEnabled: config.constraints.avoidWeekendSchedulingEnabled ?? true,
+        preferNightShiftOnWeekendEnabled: config.constraints.preferNightShiftOnWeekendEnabled ?? true
       },
       weights: {
         backupExaminerDiffDept: config.weights.backupExaminerDiffDept ?? 60,
@@ -3205,7 +3798,9 @@ const handleConstraintConfigApply = async (config: { constraints: Record<string,
         firstRestDayTeacherPriority: config.weights.preferFirstRestDayTeachers ?? 70,
         secondRestDayTeacherPriority: config.weights.preferSecondRestDayTeachers ?? 40,
         adminTeacherPriority: config.weights.adminTeacherPriority ?? 30,
-        nightShiftTeacherRecommendedDepartmentBonus: config.weights.nightShiftTeacherRecommendedDepartmentBonus ?? 50
+        nightShiftTeacherRecommendedDepartmentBonus: config.weights.nightShiftTeacherRecommendedDepartmentBonus ?? 50,
+        avoidWeekendScheduling: config.weights.avoidWeekendScheduling ?? 500,
+        preferNightShiftOnWeekend: config.weights.preferNightShiftOnWeekend ?? 300
       }
     } as any
     
@@ -3330,7 +3925,9 @@ const resetScheduleForm = () => {
     allowDept37CrossUse: true,
     balanceWorkload: true,
     preferLaterDates: true,
-    
+    avoidWeekendSchedulingEnabled: true,
+    preferNightShiftOnWeekendEnabled: true,
+
     // 高级配置选项
     enableTimeSpreadOptimization: true,
     enableDynamicWeightAdjustment: true,
@@ -4153,6 +4750,1477 @@ const getUnavailableTeachersInRange = () => {
   return unavailableTeachers;
 }
 
+// ============================================
+// 智能评估相关函数
+// ============================================
+
+// 跳转到指定步骤
+const goToStep = (step: number) => {
+  currentStep.value = step
+}
+
+// 🔧 检查科室资源匹配情况（HC2约束预检查）
+const checkDepartmentResourceMatch = () => {
+  const students = studentList.value
+  const teacherCount = getTotalTeachersCount()
+  
+  if (students.length === 0 || teacherCount === 0) {
+    return { hasIssue: false, critical: false, issues: [] }
+  }
+  
+  // 🎯 优先使用精确评估结果（完全模拟OptaPlanner约束）
+  const preciseResult = preciseAssessmentCache.value
+  if (preciseResult?.departmentCapacities) {
+    const issues: Array<{
+      dept: string
+      studentCount: number
+      teacherCount: number
+      severity: 'critical' | 'warning'
+      message: string
+    }> = []
+    
+    let hasCritical = false
+    
+    for (const dept of preciseResult.departmentCapacities) {
+      if (dept.severity === 'critical') {
+        issues.push({
+          dept: dept.department,
+          studentCount: dept.studentCount,
+          teacherCount: dept.availableExaminers,
+          severity: 'critical',
+          message: `科室"${dept.department}"${dept.availableExaminers === 0 ? '没有可用考官' : '连续日期对不足'}：${dept.twoDayStudentCount}名两天学员需要${dept.requiredDatePairs}个日期对，但仅有${dept.availableDatePairs.length}个`
+        })
+        hasCritical = true
+      } else if (dept.severity === 'high' || dept.severity === 'medium') {
+        issues.push({
+          dept: dept.department,
+          studentCount: dept.studentCount,
+          teacherCount: dept.availableExaminers,
+          severity: 'warning',
+          message: `科室"${dept.department}"资源紧张：${dept.studentCount}名学员，可用日期对${dept.availableDatePairs.length}/${dept.requiredDatePairs}`
+        })
+      }
+    }
+    
+    return {
+      hasIssue: issues.length > 0,
+      critical: hasCritical,
+      issues
+    }
+  }
+  
+  // 🚀 降级到深度优化评估结果
+  const optimizedResult = optimizedAssessmentCache.value
+  if (optimizedResult?.bottlenecks) {
+    const issues: Array<{
+      dept: string
+      studentCount: number
+      teacherCount: number
+      severity: 'critical' | 'warning'
+      message: string
+    }> = []
+    
+    let hasCritical = false
+    
+    for (const bottleneck of optimizedResult.bottlenecks) {
+      if (bottleneck.severity === 'critical') {
+        issues.push({
+          dept: bottleneck.department,
+          studentCount: bottleneck.studentCount,
+          teacherCount: bottleneck.availableExaminerCount,
+          severity: 'critical',
+          message: `科室"${bottleneck.department}"${bottleneck.availableExaminerCount === 0 ? '没有可用考官' : '容量严重不足'}：需要${bottleneck.totalExamsNeeded}场考试，可用容量${bottleneck.actualAvailableCapacity}场`
+        })
+        hasCritical = true
+      } else if (bottleneck.severity === 'high' || bottleneck.severity === 'medium') {
+        issues.push({
+          dept: bottleneck.department,
+          studentCount: bottleneck.studentCount,
+          teacherCount: bottleneck.availableExaminerCount,
+          severity: 'warning',
+          message: `科室"${bottleneck.department}"资源紧张：${bottleneck.studentCount}名学员需${bottleneck.totalExamsNeeded}场考试，利用率${(bottleneck.utilizationRate * 100).toFixed(0)}%`
+        })
+      }
+    }
+    
+    return {
+      hasIssue: issues.length > 0,
+      critical: hasCritical,
+      issues
+    }
+  }
+  
+  // 科室规范化函数
+  const normalizeDept = (dept: string | undefined): string => {
+    if (!dept) return '未知'
+    const normalized = dept.trim()
+    
+    const numMap: Record<string, string> = {
+      '1': '一', '2': '二', '3': '三', '4': '四', '5': '五',
+      '6': '六', '7': '七', '8': '八', '9': '九', '10': '十'
+    }
+    
+    if (/^区域[一二三四五六七八九十]室$/.test(normalized)) {
+      return normalized.substring(2, 3)
+    }
+    if (/^[一二三四五六七八九十]室$/.test(normalized)) {
+      return normalized.substring(0, 1)
+    }
+    if (/^[一二三四五六七八九十]$/.test(normalized)) {
+      return normalized
+    }
+    if (/^\d+室$/.test(normalized)) {
+      const num = normalized.replace('室', '')
+      return numMap[num] || normalized
+    }
+    if (/^\d+$/.test(normalized)) {
+      return numMap[normalized] || normalized
+    }
+    
+    return normalized
+  }
+  
+  // 统计学员科室分布
+  const studentDeptMap = new Map<string, number>()
+  students.forEach(student => {
+    const dept = normalizeDept(student.department)
+    studentDeptMap.set(dept, (studentDeptMap.get(dept) || 0) + 1)
+  })
+  
+  // 从localStorage获取考官数据
+  let storedTeachers: any[] = []
+  const teacherKeys = ['teachers', 'examiner_teachers', 'unified_teachers', 'teacher_data', 'teacherList']
+  for (const key of teacherKeys) {
+    try {
+      const data = localStorage.getItem(key)
+      if (data) {
+        const parsed = JSON.parse(data)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          storedTeachers = parsed
+          break
+        }
+      }
+    } catch (e) {}
+  }
+  
+  // 统计考官科室分布
+  const teacherDeptMap = new Map<string, number>()
+  storedTeachers.forEach(teacher => {
+    const dept = normalizeDept(teacher.department)
+    teacherDeptMap.set(dept, (teacherDeptMap.get(dept) || 0) + 1)
+  })
+  
+  const issues: Array<{
+    dept: string
+    studentCount: number
+    teacherCount: number
+    severity: 'critical' | 'warning'
+    message: string
+  }> = []
+  
+  let hasCritical = false
+  
+  // 检查每个科室的资源匹配
+  studentDeptMap.forEach((studentCount, dept) => {
+    let availableTeachers = teacherDeptMap.get(dept) || 0
+    
+    // 三七互通
+    if (dept === '三' || dept === '七') {
+      const otherDept = dept === '三' ? '七' : '三'
+      availableTeachers += (teacherDeptMap.get(otherDept) || 0)
+    }
+    
+    // 计算该科室需要的考试场次（假设每人2天考试）
+    const examsNeeded = studentCount * 2
+    
+    // 获取日期范围
+    const stats = getDateRangeStatistics()
+    const workdays = stats.workdays
+    
+    // 该科室的最大容量 = 可用考官数 × 工作日
+    const maxCapacity = availableTeachers * workdays
+    
+    // 检查是否严重不足（考官为0）
+    if (availableTeachers === 0) {
+      issues.push({
+        dept,
+        studentCount,
+        teacherCount: 0,
+        severity: 'critical',
+        message: `科室"${dept}"有${studentCount}名学员，但没有可用考官，无法完成排班`
+      })
+      hasCritical = true
+    } else if (examsNeeded > maxCapacity) {
+      // 容量不足
+      const requiredDays = Math.ceil(examsNeeded / availableTeachers)
+      issues.push({
+        dept,
+        studentCount,
+        teacherCount: availableTeachers,
+        severity: 'critical',
+        message: `科室"${dept}"资源不足：${studentCount}名学员需${examsNeeded}场考试，但${availableTeachers}名考官在${workdays}天内最多只能安排${maxCapacity}场`
+      })
+      hasCritical = true
+    } else if (examsNeeded > maxCapacity * 0.8) {
+      // 容量紧张
+      issues.push({
+        dept,
+        studentCount,
+        teacherCount: availableTeachers,
+        severity: 'warning',
+        message: `科室"${dept}"资源紧张：${studentCount}名学员需${examsNeeded}场考试，${availableTeachers}名考官容量为${maxCapacity}场`
+      })
+    }
+  })
+  
+  return {
+    hasIssue: issues.length > 0,
+    critical: hasCritical,
+    issues
+  }
+}
+
+// 🔧 检查不可用日期对排班的影响
+const checkUnavailableDatesImpact = () => {
+  const stats = getDateRangeStatistics()
+  const unavailableDatesCount = customUnavailableDates.value.length
+  
+  if (unavailableDatesCount === 0) {
+    return { hasIssue: false, message: '' }
+  }
+  
+  // 计算不可用日期占总日期的比例
+  const totalDays = stats.totalDays
+  const unavailableDays = unavailableDatesCount
+  
+  if (unavailableDays >= totalDays * 0.5) {
+    return {
+      hasIssue: true,
+      message: `设置了 ${unavailableDays} 天不可用日期，占总日期范围的 ${Math.round(unavailableDays/totalDays*100)}%，可能严重影响排班效果`
+    }
+  }
+  
+  if (unavailableDays > 0) {
+    return {
+      hasIssue: false,
+      message: `已设置 ${unavailableDays} 天不可用日期`
+    }
+  }
+  
+  return { hasIssue: false, message: '' }
+}
+
+// 获取容量利用率百分比
+const getCapacityPercentage = () => {
+  const stats = getDateRangeStatistics()
+  const studentCount = studentList.value.length
+  const teacherCount = getTotalTeachersCount()
+  const workdays = stats.workdays
+  
+  if (studentCount === 0 || teacherCount === 0 || workdays === 0) {
+    return 0
+  }
+  
+  const maxCapacity = teacherCount * workdays
+  const requiredCapacity = studentCount * 2
+  const percentage = Math.round((requiredCapacity / maxCapacity) * 100)
+  
+  // 限制最大显示为100%
+  return Math.min(percentage, 100)
+}
+
+// 获取容量颜色
+const getCapacityColor = () => {
+  const percentage = getCapacityPercentage()
+  
+  if (percentage > 80) {
+    return '#ef4444' // 红色 - 过载
+  } else if (percentage > 60) {
+    return '#f59e0b' // 黄色 - 紧张
+  }
+  return '#10b981' // 绿色 - 良好
+}
+
+// 获取容量渐变
+const getCapacityGradient = () => {
+  const percentage = getCapacityPercentage()
+  
+  if (percentage > 80) {
+    return 'linear-gradient(90deg, #fca5a5 0%, #ef4444 100%)' // 红色渐变
+  } else if (percentage > 60) {
+    return 'linear-gradient(90deg, #fcd34d 0%, #f59e0b 100%)' // 黄色渐变
+  }
+  return 'linear-gradient(90deg, #6ee7b7 0%, #10b981 100%)' // 绿色渐变
+}
+
+// 🚀 获取深度优化的评估结果
+const getOptimizedAssessment = async (): Promise<OptimizedAssessmentResultType | null> => {
+  const now = Date.now()
+  
+  // 检查缓存
+  if (optimizedAssessmentCache.value && (now - lastAssessmentTimestamp.value) < ASSESSMENT_CACHE_TTL) {
+    return optimizedAssessmentCache.value
+  }
+  
+  if (isOptimizedAssessmentLoading.value) {
+    return optimizedAssessmentCache.value
+  }
+  
+  isOptimizedAssessmentLoading.value = true
+  
+  try {
+    // 构建评估输入
+    const assessmentInput = await buildAssessmentInput()
+    if (!assessmentInput) {
+      return null
+    }
+    
+    const result = await optimizedAssessmentService.performAssessment(assessmentInput)
+    optimizedAssessmentCache.value = result
+    lastAssessmentTimestamp.value = now
+    
+    return result
+  } catch (error) {
+    console.error('深度评估失败:', error)
+    return null
+  } finally {
+    isOptimizedAssessmentLoading.value = false
+  }
+}
+
+// 🎯 精确评估 - 完全模拟OptaPlanner约束
+const getPreciseAssessment = async (): Promise<PreciseAssessmentResult | null> => {
+  const now = Date.now()
+  
+  // 检查缓存
+  if (preciseAssessmentCache.value && (now - lastPreciseAssessmentTimestamp.value) < PRECISE_ASSESSMENT_CACHE_TTL) {
+    return preciseAssessmentCache.value
+  }
+  
+  if (isPreciseAssessmentLoading.value) {
+    return preciseAssessmentCache.value
+  }
+  
+  isPreciseAssessmentLoading.value = true
+  
+  try {
+    // 构建评估输入
+    const assessmentInput = await buildAssessmentInput()
+    if (!assessmentInput) {
+      return null
+    }
+    
+    const result = await preciseAssessmentService.performPreciseAssessment(assessmentInput)
+    preciseAssessmentCache.value = result
+    lastPreciseAssessmentTimestamp.value = now
+    
+    console.log('[PreciseAssessment] 精确评估结果:', {
+      isFeasible: result.isFeasible,
+      confidence: result.confidence,
+      criticalDepartment: result.criticalDepartment,
+      issues: result.issues.map(i => ({ type: i.type, severity: i.severity, message: i.message }))
+    })
+    
+    return result
+  } catch (error) {
+    console.error('精确评估失败:', error)
+    return null
+  } finally {
+    isPreciseAssessmentLoading.value = false
+  }
+}
+
+// 构建评估输入
+const buildAssessmentInput = async () => {
+  const students = studentList.value
+  const teachers = await loadTeachersForAssessment()
+  const examDates = getExamDatesList()
+  const unavailableDates = getAllUnavailableDates()
+  const dutySchedule = await buildDutyScheduleMap()
+  
+  if (students.length === 0 || teachers.length === 0 || examDates.length === 0) {
+    return null
+  }
+  
+  return {
+    students,
+    teachers,
+    examDates,
+    unavailableDates,
+    dutySchedule,
+    config: {
+      constraints: {
+        maxExamsPerDay: constraints.value.maxExamsPerDay || 11,
+        avoidWeekendScheduling: !allowWeekendScheduling.value
+      }
+    }
+  }
+}
+
+// 加载考官数据用于评估
+const loadTeachersForAssessment = async (): Promise<Teacher[]> => {
+  // 尝试从多个来源加载考官数据
+  const teacherKeys = ['teachers', 'examiner_teachers', 'unified_teachers', 'teacher_data', 'teacherList']
+  
+  for (const key of teacherKeys) {
+    try {
+      const data = localStorage.getItem(key)
+      if (data) {
+        const parsed = JSON.parse(data)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed
+        }
+      }
+    } catch (e) {}
+  }
+  
+  return []
+}
+
+// 获取考试日期列表
+const getExamDatesList = (): Date[] => {
+  const dates: Date[] = []
+  if (!examStartDateStr.value || !examEndDateStr.value) {
+    return dates
+  }
+  
+  const start = dateUtils.parseDate(examStartDateStr.value)
+  const end = dateUtils.parseDate(examEndDateStr.value)
+  
+  if (!start || !end) return dates
+  
+  const current = new Date(start)
+  while (current <= end) {
+    const dayOfWeek = current.getDay()
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
+    const dateStr = dateUtils.toStandardDate(current)
+    
+    // 跳过周末（如果未开启周末排班）
+    if (isWeekend && !allowWeekendScheduling.value) {
+      current.setDate(current.getDate() + 1)
+      continue
+    }
+    
+    // 跳过节假日
+    if (holidayService.isHoliday(dateStr)) {
+      current.setDate(current.getDate() + 1)
+      continue
+    }
+    
+    // 跳过不可用日期
+    const isUnavailable = customUnavailableDates.value.some(ud => {
+      if (ud.endDate) {
+        const udStart = dateUtils.parseDate(ud.date)
+        const udEnd = dateUtils.parseDate(ud.endDate)
+        return current >= udStart! && current <= udEnd!
+      }
+      return dateUtils.toStandardDate(current) === ud.date
+    })
+    
+    if (!isUnavailable) {
+      dates.push(new Date(current))
+    }
+    
+    current.setDate(current.getDate() + 1)
+  }
+  
+  return dates
+}
+
+// 获取所有不可用日期
+const getAllUnavailableDates = (): Date[] => {
+  const dates: Date[] = []
+  
+  for (const ud of customUnavailableDates.value) {
+    if (ud.endDate) {
+      const start = dateUtils.parseDate(ud.date)
+      const end = dateUtils.parseDate(ud.endDate)
+      if (start && end) {
+        const current = new Date(start)
+        while (current <= end) {
+          dates.push(new Date(current))
+          current.setDate(current.getDate() + 1)
+        }
+      }
+    } else {
+      const date = dateUtils.parseDate(ud.date)
+      if (date) {
+        dates.push(date)
+      }
+    }
+  }
+  
+  return dates
+}
+
+// 构建值班表映射
+const buildDutyScheduleMap = async (): Promise<Map<string, string[]>> => {
+  const dutyMap = new Map<string, string[]>()
+  
+  try {
+    const dutySchedule = await dutyRotationService.getCurrentSchedule()
+    if (dutySchedule && dutySchedule.dutyDates) {
+      for (const duty of dutySchedule.dutyDates) {
+        if (duty.teacherId) {
+          const existing = dutyMap.get(duty.teacherId) || []
+          existing.push(duty.date)
+          dutyMap.set(duty.teacherId, existing)
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('加载值班表失败:', e)
+  }
+  
+  return dutyMap
+}
+
+// 🔧 获取智能评估结果（精确版 - 考虑所有约束，集成深度优化算法）
+const getAssessmentResult = () => {
+  const stats = getDateRangeStatistics()
+  const studentCount = studentList.value.length
+  const teacherCount = getTotalTeachersCount()
+  const workdays = stats.workdays
+  
+  // ========== 优先级0：精确评估结果（完全模拟OptaPlanner约束）==========
+  const preciseResult = preciseAssessmentCache.value
+  if (preciseResult) {
+    // 如果有HC6约束问题（连续日期对不足）
+    if (!preciseResult.constraintChecks.hc6.isSatisfied) {
+      const { validDatePairs, requiredForTwoDayStudents } = preciseResult.constraintChecks.hc6
+      return {
+        icon: '⚠️',
+        title: '连续考试日期不足（HC6约束）',
+        description: `需要${requiredForTwoDayStudents}个连续日期对用于两天考试，但仅有${validDatePairs}个可用。当前日期范围无法满足连续两天考试要求。`,
+        color: '#ef4444',
+        lightColor: '#fef2f2',
+        status: 'error',
+        statusClass: 'status-error',
+        badgeText: '日期不足',
+        showRecommendation: true
+      }
+    }
+    
+    // 如果有科室容量问题（HC2/HC7约束）
+    if (!preciseResult.constraintChecks.hc2_hc7.isSatisfied) {
+      const zeroCapacityDepts = preciseResult.constraintChecks.hc2_hc7.departmentsWithZeroCapacity
+      return {
+        icon: '⚠️',
+        title: '科室考官资源不足（HC2/HC7约束）',
+        description: `部门"${zeroCapacityDepts.join('、')}"没有可用考官组合，无法满足同科室考官1+不同科室考官2的要求。`,
+        color: '#ef4444',
+        lightColor: '#fef2f2',
+        status: 'error',
+        statusClass: 'status-error',
+        badgeText: '科室资源不足',
+        showRecommendation: true
+      }
+    }
+    
+    // 如果有HC4约束问题（每天考试场次超限）
+    if (!preciseResult.constraintChecks.hc4.isSatisfied) {
+      const { requiredExamsPerDay, maxExamsPerDay } = preciseResult.constraintChecks.hc4
+      return {
+        icon: '⚠️',
+        title: '每日考试场次超限（HC4约束）',
+        description: `每天需要安排${requiredExamsPerDay}场考试，但考官资源每天最多支持${maxExamsPerDay}场（每名考官每天只能监考一场）。`,
+        color: '#ef4444',
+        lightColor: '#fef2f2',
+        status: 'error',
+        statusClass: 'status-error',
+        badgeText: '场次超限',
+        showRecommendation: true
+      }
+    }
+    
+    // 如果精确评估显示不可行
+    if (!preciseResult.isFeasible) {
+      const criticalDept = preciseResult.criticalDepartment
+      const firstIssue = preciseResult.issues[0]
+      return {
+        icon: '⚠️',
+        title: criticalDept ? `部门"${criticalDept}"排班不可行` : '当前配置无法完成排班',
+        description: firstIssue?.message || '选定日期范围内无法满足所有硬约束，建议延长日期范围或调整考官配置。',
+        color: '#ef4444',
+        lightColor: '#fef2f2',
+        status: 'error',
+        statusClass: 'status-error',
+        badgeText: '不可行',
+        showRecommendation: true
+      }
+    }
+    
+    // 精确评估通过，显示高置信度
+    if (preciseResult.confidence > 0.8) {
+      return {
+        icon: '✅',
+        title: '配置可行（高置信度）',
+        description: `精确评估通过：${preciseResult.departmentCapacities.length}个科室资源充足，${preciseResult.constraintChecks.hc6.validDatePairs}个连续日期对可用。`,
+        color: '#10b981',
+        lightColor: '#d1fae5',
+        status: 'success',
+        statusClass: 'status-success',
+        badgeText: '推荐',
+        showRecommendation: false
+      }
+    }
+  }
+  
+  // ========== 优先级1：基础数据完整性 ==========
+  if (studentCount === 0) {
+    return {
+      icon: '⚠️',
+      title: '缺少学员数据',
+      description: '请先导入学员名单，确保有足够的学员需要排班',
+      color: '#ef4444',
+      lightColor: '#fef2f2',
+      status: 'error',
+      statusClass: 'status-error',
+      badgeText: '数据缺失',
+      showRecommendation: false
+    }
+  }
+  
+  if (teacherCount < 2) {
+    return {
+      icon: '⚠️',
+      title: '考官数量不足',
+      description: '可用考官过少，每场考试需要2名考官，无法完成排班',
+      color: '#ef4444',
+      lightColor: '#fef2f2',
+      status: 'error',
+      statusClass: 'status-error',
+      badgeText: '配置错误',
+      showRecommendation: false
+    }
+  }
+  
+  // ========== 优先级2：日期范围有效性 ==========
+  if (workdays === 0) {
+    return {
+      icon: '⚠️',
+      title: '无可用工作日',
+      description: '请重新选择考试日期范围，确保有足够的工作日',
+      color: '#ef4444',
+      lightColor: '#fef2f2',
+      status: 'error',
+      statusClass: 'status-error',
+      badgeText: '日期错误',
+      showRecommendation: true
+    }
+  }
+  
+  // ========== 优先级3：全局容量检查 ==========
+  const totalExamsNeeded = studentCount * 2 // 每个学员2场考试
+  const maxExamsPerDay = Math.floor(teacherCount / 2) // 每天最大场次
+  const globalCapacity = maxExamsPerDay * workdays // 全局总容量
+  
+  if (totalExamsNeeded > globalCapacity) {
+    const requiredDays = Math.ceil(totalExamsNeeded / maxExamsPerDay)
+    return {
+      icon: '⚠️',
+      title: '容量严重不足',
+      description: `需要安排${totalExamsNeeded}场考试，但当前配置最多支持${globalCapacity}场。建议扩大至${requiredDays}个工作日或增加考官。`,
+      color: '#ef4444',
+      lightColor: '#fef2f2',
+      status: 'error',
+      statusClass: 'status-error',
+      badgeText: '容量不足',
+      showRecommendation: true
+    }
+  }
+  
+  // ========== 优先级4：科室级别容量检查（HC2约束） ==========
+  const deptCheck = checkDepartmentResourceMatch()
+  if (deptCheck.critical) {
+    const firstIssue = deptCheck.issues[0]
+    return {
+      icon: '⚠️',
+      title: '科室资源不匹配',
+      description: firstIssue.message,
+      color: '#ef4444',
+      lightColor: '#fef2f2',
+      status: 'error',
+      statusClass: 'status-error',
+      badgeText: '无法排班',
+      showRecommendation: false
+    }
+  }
+  
+  // ========== 优先级5：每日容量检查 ==========
+  const requiredExamsPerDay = Math.ceil(totalExamsNeeded / workdays)
+  
+  if (requiredExamsPerDay > maxExamsPerDay) {
+    const requiredDays = Math.ceil(totalExamsNeeded / maxExamsPerDay)
+    return {
+      icon: '⚠️',
+      title: '每日容量不足',
+      description: `每天需要安排${requiredExamsPerDay}场考试，但考官资源每天最多支持${maxExamsPerDay}场。建议扩大至${requiredDays}个工作日。`,
+      color: '#ef4444',
+      lightColor: '#fef2f2',
+      status: 'error',
+      statusClass: 'status-error',
+      badgeText: '需要调整',
+      showRecommendation: true
+    }
+  }
+  
+  // ========== 优先级6：科室资源紧张警告 ==========
+  if (deptCheck.hasIssue) {
+    const firstIssue = deptCheck.issues[0]
+    return {
+      icon: '⚠️',
+      title: '科室资源紧张',
+      description: firstIssue.message,
+      color: '#f59e0b',
+      lightColor: '#fffbeb',
+      status: 'warning',
+      statusClass: 'status-warning',
+      badgeText: '资源紧张',
+      showRecommendation: false
+    }
+  }
+  
+  // ========== 优先级7：不可用考官影响检查 ==========
+  const unavailableTeachers = getUnavailableTeachersInRange()
+  const unavailableCount = unavailableTeachers.length
+  const unavailableRatio = unavailableCount / teacherCount
+  
+  if (unavailableRatio > 0.3) {
+    return {
+      icon: '⚠️',
+      title: '考官可用性受限',
+      description: `${unavailableCount}名考官（${Math.round(unavailableRatio*100)}%）在选定日期范围内不可用，可能导致排班困难。建议调整日期范围。`,
+      color: '#f59e0b',
+      lightColor: '#fffbeb',
+      status: 'warning',
+      statusClass: 'status-warning',
+      badgeText: '可用性低',
+      showRecommendation: true
+    }
+  }
+  
+  // ========== 优先级8：日程紧张检查 ==========
+  if (requiredExamsPerDay > maxExamsPerDay * 0.8) {
+    return {
+      icon: '⚠️',
+      title: '日程较紧张',
+      description: `每天需要安排${requiredExamsPerDay}场考试，接近容量上限${maxExamsPerDay}场。排班可行但选择有限。`,
+      color: '#f59e0b',
+      lightColor: '#fffbeb',
+      status: 'warning',
+      statusClass: 'status-warning',
+      badgeText: '日程紧张',
+      showRecommendation: true
+    }
+  }
+  
+  // ========== 优先级9：不可用日期影响 ==========
+  const unavailableImpact = checkUnavailableDatesImpact()
+  if (unavailableImpact.hasIssue) {
+    return {
+      icon: '⚠️',
+      title: '日期设置有影响',
+      description: unavailableImpact.message,
+      color: '#f59e0b',
+      lightColor: '#fffbeb',
+      status: 'warning',
+      statusClass: 'status-warning',
+      badgeText: '日期受限',
+      showRecommendation: true
+    }
+  }
+  
+  // ========== 成功状态 ==========
+  if (requiredExamsPerDay <= 3) {
+    return {
+      icon: '✅',
+      title: '配置完美',
+      description: `当前配置非常合理，每天仅需安排${requiredExamsPerDay}场考试，可以获得优质的排班结果`,
+      color: '#10b981',
+      lightColor: '#d1fae5',
+      status: 'success',
+      statusClass: 'status-success',
+      badgeText: '推荐',
+      showRecommendation: false
+    }
+  }
+  
+  return {
+    icon: '✅',
+    title: '配置可行',
+    description: `当前配置可以完成排班，每天需要安排 ${requiredExamsPerDay} 场考试`,
+    color: '#10b981',
+    lightColor: '#d1fae5',
+    status: 'success',
+    statusClass: 'status-success',
+    badgeText: '可行',
+    showRecommendation: false
+  }
+}
+
+// 获取评估详细信息
+const getAssessmentDetails = () => {
+  const stats = getDateRangeStatistics()
+  const studentCount = studentList.value.length
+  const teacherCount = getTotalTeachersCount()
+  const workdays = stats.workdays
+  const details: Array<{ text: string; color?: string; bgColor?: string; borderColor?: string; textColor?: string }> = []
+  
+  if (studentCount === 0) {
+    details.push({ 
+      text: '未导入学员数据', 
+      color: '#ef4444',
+      bgColor: '#fef2f2',
+      borderColor: '#fecaca',
+      textColor: '#dc2626'
+    })
+    return details
+  }
+  
+  // 基础信息 - 使用卡片式设计
+  details.push({ 
+    text: `学员数量: ${studentCount} 人`, 
+    color: '#10b981',
+    bgColor: '#f0fdf4',
+    borderColor: '#bbf7d0',
+    textColor: '#15803d'
+  })
+  
+  details.push({ 
+    text: `可用考官: ${teacherCount} 人`, 
+    color: '#10b981',
+    bgColor: '#f0fdf4',
+    borderColor: '#bbf7d0',
+    textColor: '#15803d'
+  })
+  
+  details.push({ 
+    text: `工作日数: ${workdays} 天`, 
+    color: '#10b981',
+    bgColor: '#f0fdf4',
+    borderColor: '#bbf7d0',
+    textColor: '#15803d'
+  })
+  
+  // 节假日警告
+  if (stats.holidays > 0) {
+    details.push({ 
+      text: `注意: 选定范围内有 ${stats.holidays} 天法定节假日`, 
+      color: '#f59e0b',
+      bgColor: '#fffbeb',
+      borderColor: '#fcd34d',
+      textColor: '#b45309'
+    })
+  }
+  
+  // 周末信息
+  if (allowWeekendScheduling.value && stats.weekends > 0) {
+    details.push({ 
+      text: `开启了周末排班，包含 ${stats.weekends} 天周末`, 
+      color: '#3b82f6',
+      bgColor: '#eff6ff',
+      borderColor: '#bfdbfe',
+      textColor: '#1d4ed8'
+    })
+  }
+  
+  // 计算并显示每天平均考试场次
+  const avgExamsPerDay = ((studentCount * 2) / workdays).toFixed(1)
+  const requiredExamsPerDay = Math.ceil((studentCount * 2) / workdays)
+  const maxExamsPerDay = Math.floor(teacherCount / 2)
+  
+  // 根据考试场次压力决定颜色
+  let examLoadColor = '#10b981'
+  let examLoadBg = '#f0fdf4'
+  let examLoadBorder = '#bbf7d0'
+  let examLoadText = '#15803d'
+  
+  if (requiredExamsPerDay > maxExamsPerDay) {
+    examLoadColor = '#ef4444'
+    examLoadBg = '#fef2f2'
+    examLoadBorder = '#fecaca'
+    examLoadText = '#dc2626'
+  } else if (requiredExamsPerDay > maxExamsPerDay * 0.8) {
+    examLoadColor = '#f59e0b'
+    examLoadBg = '#fffbeb'
+    examLoadBorder = '#fcd34d'
+    examLoadText = '#b45309'
+  }
+  
+  details.push({ 
+    text: `预计每天平均考试场次: ${avgExamsPerDay} 场`, 
+    color: examLoadColor,
+    bgColor: examLoadBg,
+    borderColor: examLoadBorder,
+    textColor: examLoadText
+  })
+  
+  // 计算理论容量
+  const maxCapacity = teacherCount * workdays
+  const requiredCapacity = studentCount * 2
+  const capacityRate = Math.round((requiredCapacity / maxCapacity) * 100)
+  
+  // 根据容量利用率决定颜色
+  let capacityColor = '#10b981'
+  let capacityBg = '#f0fdf4'
+  let capacityBorder = '#bbf7d0'
+  let capacityText = '#15803d'
+  
+  if (capacityRate > 100) {
+    capacityColor = '#ef4444'
+    capacityBg = '#fef2f2'
+    capacityBorder = '#fecaca'
+    capacityText = '#dc2626'
+  } else if (capacityRate > 80) {
+    capacityColor = '#f59e0b'
+    capacityBg = '#fffbeb'
+    capacityBorder = '#fcd34d'
+    capacityText = '#b45309'
+  }
+  
+  details.push({ 
+    text: `容量利用率: ${capacityRate}%`, 
+    color: capacityColor,
+    bgColor: capacityBg,
+    borderColor: capacityBorder,
+    textColor: capacityText
+  })
+  
+  // 🎯 添加精确评估详情（完全模拟OptaPlanner约束）
+  const preciseResult = preciseAssessmentCache.value
+  if (preciseResult) {
+    // 显示HC6约束检查（连续日期对）
+    const { validDatePairs, requiredForTwoDayStudents } = preciseResult.constraintChecks.hc6
+    let hc6Color = '#10b981'
+    let hc6Bg = '#f0fdf4'
+    let hc6Border = '#bbf7d0'
+    let hc6Text = '#15803d'
+    
+    if (validDatePairs < requiredForTwoDayStudents) {
+      hc6Color = '#ef4444'
+      hc6Bg = '#fef2f2'
+      hc6Border = '#fecaca'
+      hc6Text = '#dc2626'
+    } else if (validDatePairs < requiredForTwoDayStudents * 1.2) {
+      hc6Color = '#f59e0b'
+      hc6Bg = '#fffbeb'
+      hc6Border = '#fcd34d'
+      hc6Text = '#b45309'
+    }
+    
+    details.push({
+      text: `连续日期对: ${validDatePairs}/${requiredForTwoDayStudents} (HC6约束)`,
+      color: hc6Color,
+      bgColor: hc6Bg,
+      borderColor: hc6Border,
+      textColor: hc6Text
+    })
+    
+    // 显示各科室容量
+    for (const dept of preciseResult.departmentCapacities.slice(0, 3)) {
+      let deptColor = '#10b981'
+      let deptBg = '#f0fdf4'
+      let deptBorder = '#bbf7d0'
+      let deptText = '#15803d'
+      
+      if (dept.severity === 'critical') {
+        deptColor = '#ef4444'
+        deptBg = '#fef2f2'
+        deptBorder = '#fecaca'
+        deptText = '#dc2626'
+      } else if (dept.severity === 'high') {
+        deptColor = '#f59e0b'
+        deptBg = '#fffbeb'
+        deptBorder = '#fcd34d'
+        deptText = '#b45309'
+      }
+      
+      details.push({
+        text: `${dept.department}室: ${dept.availableDatePairs.length}/${dept.requiredDatePairs} 日期对`,
+        color: deptColor,
+        bgColor: deptBg,
+        borderColor: deptBorder,
+        textColor: deptText
+      })
+    }
+    
+    // 显示精确评估置信度
+    const preciseConfidencePercent = Math.round(preciseResult.confidence * 100)
+    details.push({
+      text: `精确评估置信度: ${preciseConfidencePercent}%`,
+      color: preciseConfidencePercent > 80 ? '#10b981' : preciseConfidencePercent > 60 ? '#f59e0b' : '#ef4444',
+      bgColor: preciseConfidencePercent > 80 ? '#f0fdf4' : preciseConfidencePercent > 60 ? '#fffbeb' : '#fef2f2',
+      borderColor: preciseConfidencePercent > 80 ? '#bbf7d0' : preciseConfidencePercent > 60 ? '#fcd34d' : '#fecaca',
+      textColor: preciseConfidencePercent > 80 ? '#15803d' : preciseConfidencePercent > 60 ? '#b45309' : '#dc2626'
+    })
+  }
+  
+  // 🚀 添加深度优化评估详情（降级）
+  const optimizedResult = optimizedAssessmentCache.value
+  if (optimizedResult && !preciseResult) {
+    // 显示总体置信度
+    const confidencePercent = Math.round(optimizedResult.overallConfidence * 100)
+    let confColor = '#10b981'
+    let confBg = '#f0fdf4'
+    let confBorder = '#bbf7d0'
+    let confText = '#15803d'
+    
+    if (confidencePercent < 60) {
+      confColor = '#ef4444'
+      confBg = '#fef2f2'
+      confBorder = '#fecaca'
+      confText = '#dc2626'
+    } else if (confidencePercent < 80) {
+      confColor = '#f59e0b'
+      confBg = '#fffbeb'
+      confBorder = '#fcd34d'
+      confText = '#b45309'
+    }
+    
+    details.push({
+      text: `排班可行性: ${confidencePercent}%`,
+      color: confColor,
+      bgColor: confBg,
+      borderColor: confBorder,
+      textColor: confText
+    })
+    
+    // 显示实际容量vs需求
+    const actualCapacity = optimizedResult.totalActualCapacity
+    const neededCapacity = optimizedResult.totalExamsNeeded
+    const actualRate = actualCapacity > 0 ? Math.round((neededCapacity / actualCapacity) * 100) : 0
+    
+    details.push({
+      text: `实际容量利用率: ${actualRate}% (${neededCapacity}/${actualCapacity}场)`,
+      color: actualRate > 90 ? '#ef4444' : actualRate > 75 ? '#f59e0b' : '#10b981',
+      bgColor: actualRate > 90 ? '#fef2f2' : actualRate > 75 ? '#fffbeb' : '#f0fdf4',
+      borderColor: actualRate > 90 ? '#fecaca' : actualRate > 75 ? '#fcd34d' : '#bbf7d0',
+      textColor: actualRate > 90 ? '#dc2626' : actualRate > 75 ? '#b45309' : '#15803d'
+    })
+    
+    // 显示瓶颈部门
+    const bottleneckDepts = optimizedResult.bottlenecks.filter(b => b.isBottleneck)
+    if (bottleneckDepts.length > 0) {
+      details.push({
+        text: `瓶颈部门: ${bottleneckDepts.map(b => b.department).join(', ')}`,
+        color: '#f59e0b',
+        bgColor: '#fffbeb',
+        borderColor: '#fcd34d',
+        textColor: '#b45309'
+      })
+    }
+    
+    // 显示不可用考官数
+    if (optimizedResult.unavailableExaminers.length > 0) {
+      details.push({
+        text: `不可用考官: ${optimizedResult.unavailableExaminers.length}人`,
+        color: '#f59e0b',
+        bgColor: '#fffbeb',
+        borderColor: '#fcd34d',
+        textColor: '#b45309'
+      })
+    }
+  }
+  
+  // 🔧 添加科室资源匹配检查详情
+  const deptCheck = checkDepartmentResourceMatch()
+  if (deptCheck.hasIssue) {
+    deptCheck.issues.forEach(issue => {
+      details.push({
+        text: issue.message,
+        color: issue.severity === 'critical' ? '#ef4444' : '#f59e0b',
+        bgColor: issue.severity === 'critical' ? '#fef2f2' : '#fffbeb',
+        borderColor: issue.severity === 'critical' ? '#fecaca' : '#fcd34d',
+        textColor: issue.severity === 'critical' ? '#dc2626' : '#b45309'
+      })
+    })
+  } else {
+    details.push({
+      text: '科室资源匹配检查通过，各科室考官数量充足',
+      color: '#10b981',
+      bgColor: '#f0fdf4',
+      borderColor: '#bbf7d0',
+      textColor: '#15803d'
+    })
+  }
+  
+  return details
+}
+
+// 🔧 获取改进建议（增强版）
+const getAssessmentSuggestions = () => {
+  const suggestions: string[] = []
+  const stats = getDateRangeStatistics()
+  const studentCount = studentList.value.length
+  const teacherCount = getTotalTeachersCount()
+  const workdays = stats.workdays
+  
+  if (studentCount === 0) {
+    suggestions.push('【步骤1】请先导入学员名单')
+    return suggestions
+  }
+  
+  if (teacherCount < 2) {
+    suggestions.push('【考官管理】考官数量不足，请检查考官数据是否正确导入')
+    return suggestions
+  }
+  
+  // 🔧 优先检查科室资源问题
+  const deptCheck = checkDepartmentResourceMatch()
+  if (deptCheck.critical) {
+    deptCheck.issues.forEach(issue => {
+      if (issue.severity === 'critical') {
+        suggestions.push(`【严重】${issue.message}`)
+      }
+    })
+    suggestions.push('【解决方案】增加对应科室的考官数量，或减少该科室的学员数量')
+    suggestions.push('【备选方案】延长考试日期范围，分散考试压力')
+    return suggestions
+  } else if (deptCheck.hasIssue) {
+    deptCheck.issues.forEach(issue => {
+      suggestions.push(`【注意】${issue.message}`)
+    })
+    suggestions.push('【建议】考虑调整科室人员配置，确保各科室资源均衡')
+  }
+  
+  // 🔧 计算考试容量和需求
+  const maxExamsPerDay = Math.floor(teacherCount / 2)
+  
+  if (workdays === 0) {
+    suggestions.push('【日期设置】请先设置考试日期范围')
+    return suggestions
+  }
+  
+  const requiredExamsPerDay = Math.ceil((studentCount * 2) / workdays)
+  
+  // 🔧 日期范围建议
+  if (requiredExamsPerDay > maxExamsPerDay) {
+    const needDays = Math.ceil((studentCount * 2) / maxExamsPerDay)
+    const recommendedRange = getRecommendedDateRange()
+    suggestions.push(`【日期不足】当前日期范围无法满足排班需求`)
+    suggestions.push(`【建议】至少需要 ${needDays} 个工作日`)
+    if (recommendedRange) {
+      suggestions.push(`【推荐】使用推荐日期范围：${recommendedRange.display}`)
+    }
+  } else if (requiredExamsPerDay > maxExamsPerDay * 0.8) {
+    const recommendedRange = getRecommendedDateRange()
+    suggestions.push(`【日程紧张】每天需要安排 ${requiredExamsPerDay} 场考试，接近容量上限 ${maxExamsPerDay} 场`)
+    suggestions.push(`【建议】适当扩大日期范围以获得更优质的排班结果`)
+    if (recommendedRange && recommendedRange.status !== 'good') {
+      suggestions.push(`【推荐】建议日期范围：${recommendedRange.display}（${recommendedRange.recommendedWorkdays}个工作日）`)
+    }
+  } else {
+    // 日期充足，给出优化建议
+    suggestions.push(`【容量充足】当前配置每天需安排 ${requiredExamsPerDay} 场考试，远低于容量上限 ${maxExamsPerDay} 场`)
+    suggestions.push(`【状态】可以获得优质的排班结果`)
+  }
+  
+  // 🔧 节假日和周末提示
+  if (stats.holidays > 0) {
+    suggestions.push(`【节假日】选定范围内有 ${stats.holidays} 天法定节假日${allowWeekendScheduling.value ? '' : '，将自动跳过'}`)
+  }
+  
+  if (!allowWeekendScheduling.value && stats.weekends > 0) {
+    suggestions.push(`【周末】选定范围内有 ${stats.weekends} 天周末不安排考试`)
+    suggestions.push(`【提示】如需要在周末排班，请开启"周末是否安排考试"开关`)
+  } else if (allowWeekendScheduling.value && stats.weekends > 0) {
+    suggestions.push(`【周末】已开启周末排班，包含 ${stats.weekends} 天周末`)
+  }
+  
+  // 🔧 不可用日期提示
+  if (customUnavailableDates.value.length > 0) {
+    suggestions.push(`【不可用日期】已设置 ${customUnavailableDates.value.length} 天不可用日期，系统将自动跳过`)
+  }
+  
+  return suggestions
+}
+
+// 🔧 获取推荐的日期范围（智能评估步骤专用 - 集成深度优化算法）
+// 🔧 新逻辑：
+// - 🔴 insufficient(红色): 不可行，推荐天数 > 当前天数（必须延长）
+// - 🔵 suboptimal(蓝色): 可行但不理想，推荐天数 >= 当前天数
+// - 🟢 good(绿色): 可行且理想，推荐天数 = 当前天数
+const getRecommendedDateRange = () => {
+  const studentCount = studentList.value.length
+  const teacherCount = getTotalTeachersCount()
+  
+  if (studentCount === 0 || teacherCount < 2) return null
+  
+  // 🎯 优先使用精确评估结果（完全模拟OptaPlanner约束）
+  const preciseResult = preciseAssessmentCache.value
+  if (preciseResult?.dateAnalysis?.recommendedDateRange) {
+    const rec = preciseResult.dateAnalysis.recommendedDateRange
+    const currentStats = getDateRangeStatistics()
+    const currentWorkdays = currentStats.workdays
+    
+    const startStr = dateUtils.toStandardDate(rec.startDate)
+    const endStr = dateUtils.toStandardDate(rec.endDate)
+    
+    // 🔧 使用评估服务返回的状态
+    const status = rec.status || 'good'
+    
+    // 🔧 根据状态确定推荐天数和消息
+    let message: string
+    switch (status) {
+      case 'insufficient':
+        // 🔴 红色：推荐天数必须大于当前天数
+        message = `⚠️ ${rec.reason}`
+        break
+      case 'suboptimal':
+        // 🔵 蓝色：推荐天数可以等于或大于当前天数
+        if (rec.requiredDays > currentWorkdays) {
+          message = `💡 ${rec.reason}`
+        } else {
+          message = `💡 当前${currentWorkdays}天可以完成排班，但延长日期可获得更好效果`
+        }
+        break
+      case 'good':
+      default:
+        // 🟢 绿色：推荐天数等于当前天数
+        message = `✅ 当前${currentWorkdays}天的配置可以顺利完成排班，资源配置合理`
+        break
+    }
+    
+    return {
+      start: startStr,
+      end: endStr,
+      display: `${dateUtils.toDisplayDate(startStr)} 至 ${dateUtils.toDisplayDate(endStr)}`,
+      requiredWorkdays: rec.requiredDays,
+      recommendedWorkdays: rec.requiredDays,
+      currentWorkdays: currentWorkdays,
+      status: status,
+      message: message,
+      // 添加科室容量详细信息
+      bottleneckInfo: preciseResult.departmentCapacities
+        .filter(d => d.isBottleneck)
+        .map(d => ({
+          department: d.department,
+          requiredPairs: d.requiredDatePairs,
+          availablePairs: d.availableDatePairs.length,
+          deficit: d.deficit
+        }))
+    }
+  }
+  
+  // 🚀 降级到深度优化评估结果
+  const optimizedResult = optimizedAssessmentCache.value
+  if (optimizedResult?.dateRecommendation) {
+    const rec = optimizedResult.dateRecommendation
+    const currentStats = getDateRangeStatistics()
+    const currentWorkdays = currentStats.workdays
+    
+    const startStr = dateUtils.toStandardDate(rec.recommendedStartDate)
+    const endStr = dateUtils.toStandardDate(rec.recommendedEndDate)
+    
+    // 🔧 使用评估服务返回的状态
+    const status = rec.status || 'good'
+    
+    // 🔧 根据状态确定推荐天数和消息
+    let message: string
+    switch (status) {
+      case 'insufficient':
+        // 🔴 红色：推荐天数必须大于当前天数
+        message = `⚠️ 当前日期范围不足以完成排班，建议延长至${rec.suggestedDays}天`
+        break
+      case 'suboptimal':
+        // 🔵 蓝色：推荐天数可以等于或大于当前天数
+        if (rec.suggestedDays > currentWorkdays) {
+          message = `💡 建议延长至${rec.suggestedDays}天以获得更好排班效果`
+        } else {
+          message = `💡 当前${currentWorkdays}天可以完成排班，但延长日期可获得更好效果`
+        }
+        break
+      case 'good':
+      default:
+        // 🟢 绿色：推荐天数等于当前天数
+        message = `✅ 当前${currentWorkdays}天的配置可以顺利完成排班，资源配置合理`
+        break
+    }
+    
+    return {
+      start: startStr,
+      end: endStr,
+      display: `${dateUtils.toDisplayDate(startStr)} 至 ${dateUtils.toDisplayDate(endStr)}`,
+      requiredWorkdays: rec.minRequiredDays,
+      recommendedWorkdays: rec.suggestedDays,
+      currentWorkdays: currentWorkdays,
+      status: status,
+      message: message,
+      // 添加瓶颈部门详细信息
+      bottleneckInfo: optimizedResult.bottlenecks
+        .filter(b => b.isBottleneck)
+        .map(b => ({
+          department: b.department,
+          requiredDays: b.requiredDays,
+          utilizationRate: b.utilizationRate
+        }))
+    }
+  }
+  
+  // 🔧 降级到原始计算逻辑
+  // 计算最优工作日数（基于约束求解）
+  // 考虑：每天最大考试场次、科室分布、考官可用性
+  const maxExamsPerDay = Math.floor(teacherCount / 2)
+  
+  // 保守估计：预留20%余量，确保排班质量
+  const baseRequiredDays = Math.ceil((studentCount * 2) / maxExamsPerDay)
+  const recommendedWorkdays = Math.max(baseRequiredDays + 1, Math.ceil(baseRequiredDays * 1.2))
+  
+  // 🔧 获取当前日期状态
+  const currentStats = getDateRangeStatistics()
+  const currentWorkdays = currentStats.workdays
+  
+  // 🔧 计算推荐日期（基于当前开始日期或明天）
+  let startDate: Date
+  
+  if (examStartDateStr.value) {
+    // 如果用户已设置开始日期，基于该日期计算
+    startDate = dateUtils.parseDate(examStartDateStr.value) || new Date()
+  } else {
+    // 否则从明天开始
+    startDate = new Date()
+    startDate.setDate(startDate.getDate() + 1)
+  }
+  
+  // 找到实际可用的开始日期（跳过周末和节假日）
+  while (startDate.getDay() === 0 || startDate.getDay() === 6 || 
+         holidayService.isHoliday(dateUtils.toStandardDate(startDate))) {
+    startDate.setDate(startDate.getDate() + 1)
+  }
+  
+  // 🔧 计算推荐的结束日期
+  const endDate = new Date(startDate)
+  let workdaysFound = 0
+  
+  while (workdaysFound < recommendedWorkdays) {
+    const dayOfWeek = endDate.getDay()
+    const dateStr = dateUtils.toStandardDate(endDate)
+    const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6) && !allowWeekendScheduling.value
+    const isHoliday = holidayService.isHoliday(dateStr)
+    
+    if (!isWeekend && !isHoliday) {
+      workdaysFound++
+    }
+    
+    if (workdaysFound < recommendedWorkdays) {
+      endDate.setDate(endDate.getDate() + 1)
+    }
+  }
+  
+  // 🔧 计算状态和建议
+  const status = currentWorkdays < baseRequiredDays ? 'insufficient' : 
+                 currentWorkdays < recommendedWorkdays ? 'suboptimal' : 'good'
+  
+  const startStr = dateUtils.toStandardDate(startDate)
+  const endStr = dateUtils.toStandardDate(endDate)
+  
+  return {
+    start: startStr,
+    end: endStr,
+    display: `${dateUtils.toDisplayDate(startStr)} 至 ${dateUtils.toDisplayDate(endStr)}`,
+    requiredWorkdays: baseRequiredDays,
+    recommendedWorkdays: recommendedWorkdays,
+    currentWorkdays: currentWorkdays,
+    status: status,
+    message: status === 'insufficient' ? `需要至少 ${baseRequiredDays} 个工作日，当前仅 ${currentWorkdays} 天` :
+             status === 'suboptimal' ? `建议 ${recommendedWorkdays} 个工作日以获得更好效果，当前 ${currentWorkdays} 天` :
+             `当前 ${currentWorkdays} 个工作日配置合理`
+  }
+}
+
+// 应用推荐的日期范围
+const applyRecommendedDateRange = async () => {
+  const recommended = getRecommendedDateRange()
+  if (recommended) {
+    // 🔧 先清除评估缓存，确保应用新日期后重新评估
+    optimizedAssessmentCache.value = null
+    preciseAssessmentCache.value = null
+    lastAssessmentTimestamp.value = 0
+    lastPreciseAssessmentTimestamp.value = 0
+    
+    // 更新日期
+    examStartDateStr.value = recommended.start
+    examEndDateStr.value = recommended.end
+    
+    // 🔧 立即触发重新评估（而不是等待watch的500ms延迟）
+    if (studentList.value.length > 0 && getTotalTeachersCount() >= 2) {
+      await Promise.all([
+        getOptimizedAssessment(),
+        getPreciseAssessment()
+      ])
+      process.env.NODE_ENV === 'development' && console.log('[Assessment] 应用建议后重新评估完成')
+    }
+    
+    ElMessage.success('已应用推荐的日期范围，评估状态已更新')
+  }
+}
+
+// 判断是否可以继续排班
+const isAssessmentPassable = () => {
+  const result = getAssessmentResult()
+  return result.color !== '#ef4444' // 不是红色警告就可以继续
+}
+
+// 周末排班开关变化处理
+// 点击整个区域切换周末排班开关
+const toggleWeekendScheduling = () => {
+  allowWeekendScheduling.value = !allowWeekendScheduling.value
+  onWeekendToggleChange()
+}
+
+const onWeekendToggleChange = () => {
+  // 当开启周末排班时，关闭避免周末排班的约束
+  // 当关闭周末排班时，开启避免周末排班的约束
+  constraints.value.avoidWeekendSchedulingEnabled = !allowWeekendScheduling.value
+  process.env.NODE_ENV === 'development' && console.log(`周末排班开关: ${allowWeekendScheduling.value ? '开启' : '关闭'}，避免周末排班: ${constraints.value.avoidWeekendSchedulingEnabled}`)
+}
+
+// 添加不可用日期
+const addUnavailableDate = () => {
+  if (!newUnavailableDate.value) {
+    ElMessage.warning('请选择日期')
+    return
+  }
+  
+  // 格式化显示日期
+  let displayDate = newUnavailableDate.value
+  if (unavailableDateMode.value === 'range' && newUnavailableEndDate.value) {
+    displayDate = `${newUnavailableDate.value} 至 ${newUnavailableEndDate.value}`
+  }
+  
+  // 检查是否重复
+  const isDuplicate = customUnavailableDates.value.some(item => 
+    item.date === newUnavailableDate.value && 
+    item.endDate === (unavailableDateMode.value === 'range' ? newUnavailableEndDate.value : undefined)
+  )
+  
+  if (isDuplicate) {
+    ElMessage.warning('该日期已添加')
+    return
+  }
+  
+  customUnavailableDates.value.push({
+    date: newUnavailableDate.value,
+    endDate: unavailableDateMode.value === 'range' ? newUnavailableEndDate.value : undefined,
+    displayDate,
+    reason: newUnavailableReason.value || undefined
+  })
+  
+  // 清空输入
+  newUnavailableDate.value = ''
+  newUnavailableEndDate.value = ''
+  newUnavailableReason.value = ''
+  
+  ElMessage.success('添加成功')
+}
+
+// 删除不可用日期
+const removeUnavailableDate = (index: number) => {
+  customUnavailableDates.value.splice(index, 1)
+  ElMessage.success('删除成功')
+}
+
 // 快速日期选择方法
 const setQuickDateRange = (days: number) => {
   const today = new Date();
@@ -4261,6 +6329,86 @@ const isNextMonthActive = () => {
          examEndDateStr.value === expectedEndStr
 }
 
+// 计算最优结束日期的响应式变量
+const calculatedOptimalEndDate = ref<string>('')
+const calculatedOptimalDays = ref<number>(0)
+
+// 计算最优结束日期
+const calculateOptimalEndDate = () => {
+  if (!examStartDateStr.value || studentList.value.length === 0) {
+    calculatedOptimalEndDate.value = ''
+    calculatedOptimalDays.value = 0
+    return
+  }
+  
+  const studentCount = studentList.value.length
+  const teacherCount = getTotalTeachersCount()
+  
+  if (teacherCount < 2) {
+    calculatedOptimalEndDate.value = ''
+    calculatedOptimalDays.value = 0
+    return
+  }
+  
+  // 使用calculateOptimalExamDays计算最优天数
+  const optimalDaysInfo = calculateOptimalExamDays(studentList.value, [], 2)
+  const recommendedDays = optimalDaysInfo.recommendedDays
+  
+  // 从开始日期计算结束日期
+  const startDate = dateUtils.parseDate(examStartDateStr.value)
+  if (!startDate) {
+    calculatedOptimalEndDate.value = ''
+    calculatedOptimalDays.value = 0
+    return
+  }
+  
+  // 计算工作日（排除周末和节假日）
+  let workdaysFound = 0
+  let currentDate = new Date(startDate)
+  
+  while (workdaysFound < recommendedDays) {
+    const dayOfWeek = currentDate.getDay()
+    const dateStr = dateUtils.toStandardDate(currentDate)
+    
+    // 检查是否是工作日（不是周末且不是节假日）
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
+    const isHoliday = holidayService.isHoliday(dateStr)
+    
+    // 如果允许周末排班，则不跳过周末
+    const shouldSkip = isHoliday || (!allowWeekendScheduling.value && isWeekend)
+    
+    if (!shouldSkip) {
+      workdaysFound++
+    }
+    
+    // 移动到第二天
+    currentDate.setDate(currentDate.getDate() + 1)
+  }
+  
+  // 回退一天，因为循环结束后多走了一天
+  currentDate.setDate(currentDate.getDate() - 1)
+  
+  calculatedOptimalEndDate.value = dateUtils.toStorageDate(currentDate)
+  calculatedOptimalDays.value = recommendedDays
+  
+  console.log('📅 [最优日期计算]', {
+    startDate: examStartDateStr.value,
+    recommendedDays: recommendedDays,
+    calculatedEndDate: calculatedOptimalEndDate.value,
+    studentCount: studentCount,
+    teacherCount: teacherCount
+  })
+}
+
+// 应用计算的最优日期
+const applyCalculatedOptimalDate = () => {
+  if (calculatedOptimalEndDate.value) {
+    examEndDateStr.value = calculatedOptimalEndDate.value
+    onEndDateChange()
+    ElMessage.success(`已应用推荐的结束日期：${calculatedOptimalEndDate.value}（约${calculatedOptimalDays.value}个工作日）`)
+  }
+}
+
 // 日期变化处理
 const onStartDateChange = () => {
   // 使用dateUtils验证日期格式
@@ -4269,6 +6417,11 @@ const onStartDateChange = () => {
     if (parsedDate) {
       examStartDateStr.value = dateUtils.toStorageDate(parsedDate)
     }
+    // 开始日期变化时重新计算最优结束日期
+    calculateOptimalEndDate()
+  } else {
+    calculatedOptimalEndDate.value = ''
+    calculatedOptimalDays.value = 0
   }
   updateDateSuggestion()
 }
@@ -4596,7 +6749,7 @@ const getActiveSoftConstraintsCount = () => {
   const constraintsObj = constraints.value as any
   const softConstraintKeys = [
     'nightShiftTeacherPriority',
-    'examiner2ProfessionalMatch', 
+    'examiner2ProfessionalMatch',
     'firstRestDayTeacherPriority',
     'backupExaminerProfessionalMatch',
     'secondRestDayTeacherPriority',
@@ -4605,7 +6758,9 @@ const getActiveSoftConstraintsCount = () => {
     'backupExaminerAlternativeOption',
     'allowDept37CrossUse',
     'balanceWorkload',
-    'preferLaterDates'
+    'preferLaterDates',
+    'avoidWeekendSchedulingEnabled',
+    'preferNightShiftOnWeekendEnabled'
   ]
   
   return softConstraintKeys.filter(key => constraintsObj[key]).length
@@ -4776,7 +6931,11 @@ const canProceedToNextStep = () => {
         const endDate = dateUtils.parseDate(examEndDateStr.value)
         return startDate && endDate && startDate <= endDate
       case 3:
-        return true
+        // 智能评估步骤，只要不是红色警告级别就可以继续
+        return isAssessmentPassable()
+      case 4:
+        // 确认执行步骤
+        return studentList.value.length > 0 && examStartDateStr.value && examEndDateStr.value
       default:
         return false
     }
@@ -4999,6 +7158,10 @@ const originalNextStep = async () => {
       balanceWorkload: 10,
       // SC11: 日期分配均衡（权重：5）
       preferLaterDates: 5,
+      // SC16: 智能周末降级策略（权重：500）
+      avoidWeekendSchedulingEnabled: constraints.value.avoidWeekendSchedulingEnabled,
+      // SC17: 周末优先晚班考官策略（权重：300）
+      preferNightShiftOnWeekendEnabled: constraints.value.preferNightShiftOnWeekendEnabled,
       // 启用灵活调度
       enableFlexibleScheduling: 10,
       maxTwoStudentsPerDay: 15,
@@ -5067,6 +7230,7 @@ const originalNextStep = async () => {
       teachers: optaPlannerTeachers,
       startDate: startDateStr,
       endDate: endDateStr,
+      examDates: examDates, // 传递计算好的可用日期（已排除不可用日期和周末）
       constraints: basicConstraints,
       solverConfig: {
         timeoutSeconds: solvingMode === 'fast' ? 15 : solvingMode === 'optimal' ? 60 : 30,
@@ -5830,8 +7994,8 @@ const generateExamDateRange = (startDate: Date, endDate: Date): string[] => {
     
     // 2026年法定节假日
     '2026-01-01', // 元旦
-    '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', // 春节
-    '2026-02-20', '2026-02-21', '2026-02-22',
+    '2026-02-15', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', // 春节
+    '2026-02-20', '2026-02-21', '2026-02-22', '2026-02-23', // 春节（2月15日-23日共9天）
     '2026-04-05', '2026-04-06', '2026-04-07', // 清明节
     '2026-05-01', '2026-05-02', '2026-05-03', // 劳动节
     '2026-05-29', // 端午节
@@ -5846,7 +8010,7 @@ const generateExamDateRange = (startDate: Date, endDate: Date): string[] => {
     '2025-04-27', // 劳动节调休
     '2025-09-28', '2025-10-11', // 国庆节调休
     
-    '2026-02-15', '2026-02-23', // 春节调休（预估）
+    // '2026-02-15', '2026-02-23', // 春节调休已取消（2月15日-23日全部为假期）
     '2026-04-26', // 劳动节调休（预估）
     '2026-09-27', '2026-10-10' // 国庆节调休（预估）
   ])
@@ -5858,6 +8022,22 @@ const generateExamDateRange = (startDate: Date, endDate: Date): string[] => {
     
     // 调试：记录日期判断过程
     process.env.NODE_ENV === 'development' && console.log(`🔍 判断日期 ${dateStr}: 星期${dayOfWeek}`)
+    
+    // 检查是否在自定义不可用日期列表中
+    const isCustomUnavailable = customUnavailableDates.value.some(item => {
+      if (item.endDate) {
+        // 范围模式
+        return dateStr >= item.date && dateStr <= item.endDate
+      } else {
+        // 单日模式
+        return dateStr === item.date
+      }
+    })
+    
+    if (isCustomUnavailable) {
+      process.env.NODE_ENV === 'development' && console.log(`❌ ${dateStr} 是自定义不可用日期`)
+      return false
+    }
     
     // 如果是调休工作日，则为工作日
     if (workdays.has(dateStr)) {
@@ -5871,10 +8051,15 @@ const generateExamDateRange = (startDate: Date, endDate: Date): string[] => {
       return false
     }
     
-    // 如果是周末，则不是工作日
+    // 如果是周末，根据开关设置判断
     if (dayOfWeek === 0 || dayOfWeek === 6) { // 周日或周六
-      process.env.NODE_ENV === 'development' && console.log(`❌ ${dateStr} 是周末 (星期${dayOfWeek})`)
-      return false
+      if (allowWeekendScheduling.value) {
+        process.env.NODE_ENV === 'development' && console.log(`✅ ${dateStr} 是周末，但开启了周末排班`)
+        return true
+      } else {
+        process.env.NODE_ENV === 'development' && console.log(`❌ ${dateStr} 是周末 (星期${dayOfWeek})，且未开启周末排班`)
+        return false
+      }
     }
     
     // 其他情况为工作日
@@ -5967,15 +8152,7 @@ const prepareTeacherData = async (): Promise<TeacherInfo[]> => {
       }
     }
     
-    // 如果仍然没有数据，尝试从unifiedStorageService加载
-    if (storedTeachers.length === 0) {
-      try {
-        storedTeachers = await unifiedStorageService.loadTeachers()
-        process.env.NODE_ENV === 'development' && console.log('✅从unifiedStorageService加载考官数据:', storedTeachers.length, '名考官')
-      } catch (error) {
-        console.warn('从unifiedStorageService加载考官数据失败:', error)
-      }
-    }
+    // 注：storageService 和 unifiedStorageService 是同一个单例，无需重复尝试
     
     if (storedTeachers.length === 0) {
       console.error('❌存储中没有考官数据！请先在考官管理页面上传考官名单')
@@ -10529,6 +12706,351 @@ const partialRescheduleUnpinned = async () => {
   }
 }
 
+// 🔧 新的局部重排函数：自动扩展日期直到排班成功
+const triggerLocalReschedule = async () => {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/53a25d9f-31ac-4999-bbed-18803cf2b93a',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      location:'SchedulesPage.vue:triggerLocalReschedule:entry',
+      message:'triggerLocalReschedule called',
+      data:{
+        pinnedCount:pinnedScheduleIds.value.size,
+        totalSchedules:scheduleResults.value.length,
+        currentStartDate:examStartDateStr.value,
+        currentEndDate:examEndDateStr.value
+      },
+      timestamp:Date.now(),
+      sessionId:'debug-session',
+      hypothesisId:'LocalReschedule'
+    })
+  }).catch(()=>{});
+  // #endregion
+
+  // 1. 检查是否有固定的排班
+  if (pinnedScheduleIds.value.size === 0) {
+    ElMessage.warning('请先固定需要重排的排班记录（点击排班记录上的图钉图标）')
+    return
+  }
+
+  const pinnedCount = pinnedScheduleIds.value.size
+  const totalCount = scheduleResults.value.length
+  
+  // 2. 确认对话框
+  try {
+    await ElMessageBox.confirm(
+      `<div style="line-height: 1.8; font-size: 14px;">
+        <p>将对 <strong style="color: #409eff;">${pinnedCount}</strong> 个固定排班进行局部重排</p>
+        <p>保持 <strong style="color: #67c23a;">${totalCount - pinnedCount}</strong> 个未固定排班不变</p>
+        <br/>
+        <p>🔧 <strong>功能说明：</strong></p>
+        <p>• 系统会在当前选定日期之后自动扩展日期范围</p>
+        <p>• 尝试顺序：2天 → 4天 → 6天 → 8天... 直到排班成功</p>
+        <p>• 所有约束条件（不可用考官、不可用时间）均会考虑</p>
+        <p>• 未固定的排班将完全保持不变</p>
+      </div>`,
+      '确认局部重排',
+      {
+        confirmButtonText: '开始局部重排',
+        cancelButtonText: '取消',
+        type: 'info',
+        dangerouslyUseHTMLString: true
+      }
+    )
+  } catch {
+    return  // 用户取消
+  }
+
+  // 3. 开始局部重排流程
+  isLocalRescheduling.value = true
+  localRescheduleProgress.value = '准备局部重排...'
+  
+  // 获取当前日期范围
+  const originalStartDate = examStartDateStr.value
+  const originalEndDate = examEndDateStr.value
+  
+  if (!originalStartDate || !originalEndDate) {
+    ElMessage.error('请先设置考试日期范围')
+    isLocalRescheduling.value = false
+    return
+  }
+
+  // 计算当前日期范围的工作日天数
+  const currentWorkdays = calculateWorkdaysBetween(originalStartDate, originalEndDate)
+  
+  // 根据固定排班数量决定最大扩展天数
+  // 每个固定排班至少需要2天（连续两天考试）
+  const minDaysNeeded = Math.max(2, Math.ceil(pinnedCount / 2)) * 2  // 至少2天，根据数量增加
+  const maxExtensionDays = Math.max(8, minDaysNeeded * 2)  // 最大扩展天数，至少8天
+  
+  // 尝试的扩展天数序列：2, 4, 6, 8...
+  const extensionDaysList: number[] = []
+  for (let days = 2; days <= maxExtensionDays; days += 2) {
+    extensionDaysList.push(days)
+  }
+
+  console.log('🔧 [局部重排] 扩展计划:', {
+    当前工作日: currentWorkdays,
+    固定排班数: pinnedCount,
+    预计需要天数: minDaysNeeded,
+    最大扩展天数: maxExtensionDays,
+    尝试序列: extensionDaysList
+  })
+
+  // 4. 逐步扩展日期并尝试排班
+  let lastError = ''
+  
+  for (const extensionDays of extensionDaysList) {
+    localRescheduleAttemptDays.value = extensionDays
+    localRescheduleProgress.value = `正在尝试扩展 ${extensionDays} 天...`
+    
+    // 计算新的结束日期（在当前结束日期后增加工作日）
+    const newEndDate = addWorkdays(originalEndDate, extensionDays)
+    
+    console.log(`🔧 [局部重排] 尝试扩展 ${extensionDays} 天:`, {
+      原开始日期: originalStartDate,
+      原结束日期: originalEndDate,
+      新结束日期: newEndDate
+    })
+    
+    try {
+      // 临时更新日期范围
+      examEndDateStr.value = newEndDate
+      
+      // 执行局部重排
+      const success = await executeLocalRescheduleWithDates(originalStartDate, newEndDate)
+      
+      if (success) {
+        // 排班成功
+        localRescheduleProgress.value = '✅ 排班成功！'
+        ElMessage.success({
+          message: `✅ 局部重排成功！\n📅 日期范围已自动扩展至 ${newEndDate}\n📌 ${pinnedCount} 个固定排班已重新分配`,
+          duration: 5000,
+          showClose: true
+        })
+        
+        // 保存页面状态
+        savePageState()
+        hasUnsavedChanges.value = true
+        
+        isLocalRescheduling.value = false
+        return
+      }
+      
+      // 如果失败但还有下一个尝试，继续
+      console.log(`🔧 [局部重排] 扩展 ${extensionDays} 天未能完成排班，准备尝试更多天数...`)
+      
+    } catch (error: any) {
+      console.error(`❌ [局部重排] 扩展 ${extensionDays} 天失败:`, error)
+      lastError = error.message || '排班失败'
+      
+      // 🔧 更新进度显示当前错误
+      localRescheduleProgress.value = `扩展 ${extensionDays} 天失败: ${lastError.substring(0, 50)}...`
+      
+      // 继续尝试下一个扩展天数
+    }
+  }
+  
+  // 所有尝试都失败了
+  localRescheduleProgress.value = '❌ 排班失败'
+  ElMessage.error({
+    message: `❌ 局部重排失败\n已尝试扩展至 ${maxExtensionDays} 天仍无法完成排班\n${lastError ? '错误信息: ' + lastError : ''}\n\n建议：\n1. 检查考官资源是否充足\n2. 检查约束条件是否合理\n3. 尝试固定更少的排班记录`,
+    duration: 0,
+    showClose: true
+  })
+  
+  // 恢复原日期范围
+  examEndDateStr.value = originalEndDate
+  isLocalRescheduling.value = false
+}
+
+// 🔧 辅助函数：使用指定日期范围执行局部重排
+const executeLocalRescheduleWithDates = async (startDate: string, endDate: string): Promise<boolean> => {
+  const rescheduleIds = Array.from(pinnedScheduleIds.value)
+  const allScheduleIds = scheduleResults.value.map(s => String(s.id))
+  const pinnedIds = allScheduleIds.filter(id => !rescheduleIds.includes(id))
+
+  // 构建学生考试天数映射
+  const studentExamDaysMap = new Map<string, number>()
+  studentList.value.forEach((st: any) => {
+    const days = st?.examDays || 2
+    if (st?.name) studentExamDaysMap.set(st.name, days)
+  })
+
+  // 转换现有排班数据（与原有逻辑一致）
+  const existingAssignments = scheduleResults.value.map(s => {
+    const examDays = studentExamDaysMap.get(s.student) || (s as any).examDays || 2
+    const isOneDayExam = examDays === 1
+    
+    const ensureFullDate = (dateValue: string | null | undefined): string | null => {
+      if (!dateValue || dateValue === '-' || dateValue === '—' || dateValue === '未安排') return null
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) return dateValue
+      return convertToFullDate(dateValue)
+    }
+    
+    const date1Full = ensureFullDate((s as any).rawDate1) || ensureFullDate(s.date1)
+    const date2Full = isOneDayExam ? '' : (ensureFullDate((s as any).rawDate2) || ensureFullDate(s.date2 || ''))
+
+    return {
+      id: String(s.id),
+      studentId: String(s.id),
+      studentName: s.student,
+      date1: date1Full,
+      examiner1_1: s.examiner1_1,
+      examiner1_2: s.examiner1_2,
+      backup1: s.backup1,
+      examDays,
+      date2: date2Full,
+      examiner2_1: isOneDayExam ? '' : s.examiner2_1,
+      examiner2_2: isOneDayExam ? '' : s.examiner2_2,
+      backup2: isOneDayExam ? '' : s.backup2,
+      pinned: pinnedIds.includes(String(s.id)),
+    }
+  })
+  
+  // 转换学员数据（与原有API格式一致）
+  const convertedStudents = studentList.value.map(student => ({
+    id: student.id || `student_${student.name}`,
+    name: student.name,
+    department: student.department,
+    group: student.group || '无',
+    examDays: student.examDays || 2,
+    day1Subjects: student.day1Subjects ? JSON.stringify(student.day1Subjects) : undefined,
+    day2Subjects: student.day2Subjects ? JSON.stringify(student.day2Subjects) : undefined,
+    recommendedExaminer1Dept: (student as any).recommendedExaminer1Dept,
+    recommendedExaminer2Dept: (student as any).recommendedExaminer2Dept,
+    recommendedBackupDept: (student as any).recommendedBackupDept,
+  }))
+  
+  // 转换考官数据
+  const convertedTeachers = teacherList.value.map(teacher => ({
+    id: teacher.id || `teacher_${teacher.name}`,
+    name: teacher.name,
+    department: teacher.department,
+    group: teacher.group || '无',
+    skills: teacher.skills || [],
+    workload: teacher.workload || 0,
+    consecutiveDays: teacher.consecutiveDays || 0,
+    unavailablePeriods: (teacher.unavailablePeriods || []).map(p => ({
+      startDate: p.startDate,
+      endDate: p.endDate,
+      reason: p.reason || ''
+    }))
+  }))
+  
+  // 构建请求（使用传入的日期范围，保持与原有API一致）
+  const request = {
+    pinnedScheduleIds: pinnedIds,
+    existingAssignments: existingAssignments,
+    students: convertedStudents,
+    teachers: convertedTeachers,
+    startDate: startDate,
+    endDate: endDate,
+    constraints: constraints.value
+  }
+  
+  console.log('📤 [局部重排] 调用后端API:', {
+    日期范围: `${startDate} 至 ${endDate}`,
+    固定数量: pinnedIds.length,
+    重排数量: rescheduleIds.length,
+    学员数: convertedStudents.length,
+    考官数: convertedTeachers.length,
+    排班总数: existingAssignments.length
+  })
+  
+  // 🔍 调试：检查固定/未固定排班
+  console.log('🔍 [局部重排] 排班状态检查:', {
+    固定排班IDs: pinnedIds.slice(0, 5),
+    重排排班IDs: rescheduleIds.slice(0, 5),
+    样例排班: existingAssignments[0] ? {
+      id: existingAssignments[0].id,
+      studentName: existingAssignments[0].studentName,
+      pinned: existingAssignments[0].pinned
+    } : '无排班数据'
+  })
+  
+  // 调用后端API（使用现有的 partial-reschedule 端点）
+  const response = await fetch('/api/schedule/partial-reschedule', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(request)
+  })
+  
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`HTTP ${response.status}: ${errorText}`)
+  }
+  
+  const result = await response.json()
+  
+  // 🔧 改进错误处理：记录详细响应信息
+  console.log('📥 [局部重排] 后端响应:', {
+    success: result.success,
+    message: result.message,
+    assignmentsCount: result.assignments?.length,
+    error: result.error
+  })
+  
+  if (result.success && result.assignments) {
+    // 更新排班结果
+    updateUnpinnedSchedules(result.assignments, pinnedIds)
+    return true
+  }
+  
+  // 🔧 如果后端返回失败，抛出错误以便上层捕获
+  if (!result.success) {
+    throw new Error(result.message || result.error || '排班求解失败')
+  }
+  
+  return false
+}
+
+// 🔧 辅助函数：计算两个日期之间的工作日天数
+const calculateWorkdaysBetween = (startDate: string, endDate: string): number => {
+  const start = new Date(startDate)
+  const end = new Date(endDate)
+  let workdays = 0
+  const current = new Date(start)
+  
+  while (current <= end) {
+    const dayOfWeek = current.getDay()
+    const dateStr = dateUtils.toStandardDate(current)
+    const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6)
+    const isHoliday = holidayService.isHoliday(dateStr)
+    
+    if (!isWeekend && !isHoliday) {
+      workdays++
+    }
+    
+    current.setDate(current.getDate() + 1)
+  }
+  
+  return workdays
+}
+
+// 🔧 辅助函数：在指定日期后增加指定工作日天数
+const addWorkdays = (dateStr: string, workdays: number): string => {
+  const date = new Date(dateStr)
+  let addedDays = 0
+  
+  while (addedDays < workdays) {
+    date.setDate(date.getDate() + 1)
+    const dayOfWeek = date.getDay()
+    const currentDateStr = dateUtils.toStandardDate(date)
+    const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6)
+    const isHoliday = holidayService.isHoliday(currentDateStr)
+    
+    if (!isWeekend && !isHoliday) {
+      addedDays++
+    }
+  }
+  
+  return dateUtils.toStandardDate(date)
+}
+
 const updateUnpinnedSchedules = (assignments: any[], pinnedIds: string[]) => {
   console.log('🔄 [局部重排] 开始更新未固定排班:', {
     后端返回总数: assignments.length,
@@ -12877,6 +15399,34 @@ watch([studentList, teacherList, examStartDateStr, examEndDateStr], () => {
   }
 })
 
+// 🚀 触发深度优化评估
+watch([studentList, teacherList, examStartDateStr, examEndDateStr, 
+       customUnavailableDates, allowWeekendScheduling], 
+  async () => {
+    // 延迟执行，避免频繁计算
+    if (optimizedAssessmentDebounceTimer) {
+      clearTimeout(optimizedAssessmentDebounceTimer)
+    }
+    
+    optimizedAssessmentDebounceTimer = window.setTimeout(async () => {
+      if (studentList.value.length > 0 && getTotalTeachersCount() >= 2) {
+        // 同时触发两种评估
+        await Promise.all([
+          getOptimizedAssessment(),
+          getPreciseAssessment()
+        ])
+        process.env.NODE_ENV === 'development' && console.log('[Assessment] 评估已更新（优化+精确）')
+      }
+    }, 500)
+  },
+  { immediate: true, deep: true }
+)
+
+let optimizedAssessmentDebounceTimer: number | null = null
+
+// 🎯 精确评估防抖定时器
+let preciseAssessmentDebounceTimer: number | null = null
+
 // 页面加载时恢复排班结果
 onMounted(async () => {
   // #region agent log
@@ -14850,17 +17400,32 @@ onUnmounted(() => {
   margin-bottom: 32px;
 }
 
+.step-icon {
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  margin: 0 auto 16px;
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+}
+
 .step-title h3 {
-  font-size: 24px;
-  font-weight: 600;
+  font-size: 26px;
+  font-weight: 700;
   color: #1f2937;
-  margin: 0 0 8px 0;
+  margin: 0 0 12px 0;
 }
 
 .step-description {
   font-size: 16px;
   color: #6b7280;
-  margin: 0;
+  margin: 0 auto;
+  max-width: 600px;
+  line-height: 1.6;
 }
 
 /* 文件上传区域样式 */
@@ -15056,16 +17621,26 @@ onUnmounted(() => {
 
 .preview-header {
   display: grid;
-  grid-template-columns: 60px 1fr 1fr 1fr 1.5fr;
+  grid-template-columns: 60px 1fr 1fr 1fr 2fr 1.5fr;
   background: #f9fafb;
   font-weight: 600;
   color: #374151;
 }
 
+/* 当没有推荐考官列时的5列布局 */
+.preview-header:has(:nth-child(5):last-child) {
+  grid-template-columns: 60px 1fr 1fr 1fr 1.5fr;
+}
+
 .preview-header span {
-  padding: 12px 16px;
+  padding: 12px 8px;
   border-right: 1px solid #e5e7eb;
   font-size: 14px;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .preview-header span:last-child {
@@ -15089,12 +17664,15 @@ onUnmounted(() => {
 }
 
 .preview-row span {
-  padding: 10px 12px;
+  padding: 10px 8px;
   border-right: 1px solid #f3f4f6;
   color: #6b7280;
   font-size: 14px;
   display: flex;
   align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .preview-row span:last-child {
@@ -15104,6 +17682,12 @@ onUnmounted(() => {
 .recommended-examiners {
   font-size: 12px;
   color: #059669;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* 🆕 考试内容单元格样式 */
@@ -15322,6 +17906,63 @@ onUnmounted(() => {
   font-size: 20px;
   color: #6b7280;
   pointer-events: none;
+}
+
+.date-input-wrapper.has-recommendation .date-input {
+  border-color: #3b82f6;
+  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
+  padding-right: 110px;
+}
+
+.apply-recommended-btn {
+  position: absolute;
+  right: 50px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+}
+
+.apply-recommended-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.4);
+}
+
+.label-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.date-label-tip.recommended {
+  color: #3b82f6;
+  font-weight: 600;
+  background: #dbeafe;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-style: normal;
+}
+
+.smart-date-hint {
+  animation: slideIn 0.4s ease-out;
+}
+
+/* 字段提示 */
+.field-hint {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.field-hint.success {
+  background: #f0fdf4;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border-left: 3px solid #10b981;
 }
 
 /* 智能建议样式 */
@@ -18028,5 +20669,209 @@ onUnmounted(() => {
 
 .date-picker-tips li {
   margin: 4px 0;
+}
+
+/* ============================================
+   智能评估组件样式
+   ============================================ */
+
+/* 状态卡片基础样式 */
+.status-card {
+  background: white;
+  border: 2px solid #e2e8f0;
+  transition: all 0.3s ease;
+}
+
+/* 状态指示条 */
+.status-indicator-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+}
+
+/* 状态图标容器 */
+.status-icon-wrapper {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+/* 状态标签 */
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* 成功状态 */
+.status-card.status-success {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%);
+  border-color: #86efac;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.1);
+}
+
+.status-card.status-success .status-icon-wrapper {
+  animation: pulse-success 2s ease-in-out infinite;
+}
+
+/* 警告状态 */
+.status-card.status-warning {
+  background: linear-gradient(135deg, #fffbeb 0%, #ffffff 100%);
+  border-color: #fcd34d;
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.1);
+}
+
+.status-card.status-warning .status-icon-wrapper {
+  animation: pulse-warning 2s ease-in-out infinite;
+}
+
+/* 错误状态 */
+.status-card.status-error {
+  background: linear-gradient(135deg, #fef2f2 0%, #ffffff 100%);
+  border-color: #fecaca;
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.1);
+}
+
+.status-card.status-error .status-icon-wrapper {
+  animation: pulse-error 2s ease-in-out infinite;
+}
+
+/* 成功状态脉冲动画 */
+@keyframes pulse-success {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(16, 185, 129, 0);
+  }
+}
+
+/* 警告状态脉冲动画 */
+@keyframes pulse-warning {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(245, 158, 11, 0);
+  }
+}
+
+/* 错误状态脉冲动画 */
+@keyframes pulse-error {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(239, 68, 68, 0);
+  }
+}
+
+/* 指标卡片悬停效果 */
+.metric-card {
+  transition: all 0.3s ease;
+}
+
+.metric-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+/* 容量进度条动画 */
+.capacity-progress-bar {
+  position: relative;
+  overflow: hidden;
+}
+
+.capacity-progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.3) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* 分析项目样式 */
+.analysis-item {
+  transition: all 0.2s ease;
+}
+
+.analysis-item:hover {
+  transform: translateX(4px);
+}
+
+/* 建议项目样式 */
+.suggestion-items > div {
+  transition: all 0.2s ease;
+}
+
+.suggestion-items > div:hover {
+  transform: translateX(4px);
+  box-shadow: 0 2px 8px rgba(251, 191, 36, 0.2);
+}
+
+/* 操作按钮悬停效果增强 */
+.action-options button {
+  transition: all 0.2s ease;
+}
+
+.action-options button:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+/* 响应式适配 */
+@media (max-width: 768px) {
+  .status-icon-wrapper {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .status-icon-wrapper svg {
+    width: 24px;
+    height: 24px;
+  }
+  
+  .metrics-grid {
+    grid-template-columns: 1fr !important;
+  }
+  
+  .action-options {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .status-card {
+    padding: 16px;
+  }
+  
+  .status-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+  }
 }
 </style>

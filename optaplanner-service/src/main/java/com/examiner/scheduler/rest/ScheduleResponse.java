@@ -25,11 +25,16 @@ public class ScheduleResponse {
     private int completeAssignments;
     private int incompleteAssignments;
     
+    // 🆕 智能指导信息
+    private com.examiner.scheduler.dto.SchedulingGuidanceDTO guidance;
+    private boolean showGuidance;
+    
     // 构造函数
     public ScheduleResponse() {
         this.assignments = new ArrayList<>();
         this.conflicts = new ArrayList<>();
         this.warnings = new ArrayList<>();
+        this.showGuidance = false;
     }
     
     public ScheduleResponse(boolean success, String message, 
@@ -129,6 +134,23 @@ public class ScheduleResponse {
     
     public void setIncompleteAssignments(int incompleteAssignments) {
         this.incompleteAssignments = incompleteAssignments;
+    }
+    
+    // 🆕 指导信息Getter和Setter
+    public com.examiner.scheduler.dto.SchedulingGuidanceDTO getGuidance() {
+        return guidance;
+    }
+    
+    public void setGuidance(com.examiner.scheduler.dto.SchedulingGuidanceDTO guidance) {
+        this.guidance = guidance;
+    }
+    
+    public boolean isShowGuidance() {
+        return showGuidance;
+    }
+    
+    public void setShowGuidance(boolean showGuidance) {
+        this.showGuidance = showGuidance;
     }
     
     @Override

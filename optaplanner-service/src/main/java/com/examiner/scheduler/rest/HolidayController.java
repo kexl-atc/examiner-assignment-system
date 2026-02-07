@@ -161,6 +161,62 @@ public class HolidayController {
     }
     
     /**
+     * 🆕 检查日期范围是否包含节假日（支持方案1：前端阻止在节假日添加不可用日期）
+     */
+    @GET
+    @Path("/check-range")
+    public Response checkHolidayRange(@QueryParam("startDate") String startDate, 
+                                       @QueryParam("endDate") String endDate) {
+        try {
+            LOGGER.info("检查日期范围节假日请求，开始: " + startDate + ", 结束: " + endDate);
+            
+            if (startDate == null || startDate.trim().isEmpty() || endDate == null || endDate.trim().isEmpty()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity("{\"success\":false,\"message\":\"开始日期和结束日期不能为空\"}")
+                        .build();
+            }
+            
+            LocalDate start = LocalDate.parse(startDate);
+            LocalDate end = LocalDate.parse(endDate);
+            
+            // 检查日期范围内的所有节假日
+            List<String> holidaysInRange = new java.util.ArrayList<>();
+            LocalDate current = start;
+            while (!current.isAfter(end)) {
+                if (holidayConfig.isHoliday(current)) {
+                    holidaysInRange.add(current.toString());
+                }
+                current = current.plusDays(1);
+            }
+            
+            HolidayRangeCheckResponse response = new HolidayRangeCheckResponse();
+            response.setSuccess(true);
+            response.setStartDate(startDate);
+            response.setEndDate(endDate);
+            response.setContainsHolidays(!holidaysInRange.isEmpty());
+            response.setHolidayDates(holidaysInRange);
+            response.setHolidayCount(holidaysInRange.size());
+            
+            if (!holidaysInRange.isEmpty()) {
+                response.setMessage("该日期范围包含 " + holidaysInRange.size() + " 个节假日，不建议设置为不可用日期");
+            } else {
+                response.setMessage("该日期范围不包含节假日");
+            }
+            
+            LOGGER.info("日期范围检查结果: " + holidaysInRange.size() + " 个节假日");
+            return Response.ok(response).build();
+            
+        } catch (Exception e) {
+            LOGGER.severe("检查日期范围失败: " + e.getMessage());
+            e.printStackTrace();
+            
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("{\"success\":false,\"message\":\"检查日期范围失败: " + e.getMessage() + "\"}")
+                    .build();
+        }
+    }
+    
+    /**
      * 获取节假日描述
      */
     private String getHolidayDescription(LocalDate date) {
@@ -284,5 +340,42 @@ public class HolidayController {
         
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
+    }
+    
+    /**
+     * 🆕 日期范围节假日检查响应DTO
+     * 支持方案1：前端阻止在节假日添加不可用日期
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class HolidayRangeCheckResponse {
+        private boolean success;
+        private String message;
+        private String startDate;
+        private String endDate;
+        private boolean containsHolidays;
+        private List<String> holidayDates;
+        private int holidayCount;
+        
+        // Getter和Setter方法
+        public boolean isSuccess() { return success; }
+        public void setSuccess(boolean success) { this.success = success; }
+        
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+        
+        public String getStartDate() { return startDate; }
+        public void setStartDate(String startDate) { this.startDate = startDate; }
+        
+        public String getEndDate() { return endDate; }
+        public void setEndDate(String endDate) { this.endDate = endDate; }
+        
+        public boolean isContainsHolidays() { return containsHolidays; }
+        public void setContainsHolidays(boolean containsHolidays) { this.containsHolidays = containsHolidays; }
+        
+        public List<String> getHolidayDates() { return holidayDates; }
+        public void setHolidayDates(List<String> holidayDates) { this.holidayDates = holidayDates; }
+        
+        public int getHolidayCount() { return holidayCount; }
+        public void setHolidayCount(int holidayCount) { this.holidayCount = holidayCount; }
     }
 }

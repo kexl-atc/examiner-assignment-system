@@ -109,7 +109,9 @@ public class Student extends PanacheEntity {
         domainStudent.setName(this.name);
         // 🔧 修复：使用标准化的科室简写格式，确保约束逻辑正确工作
         domainStudent.setDepartment(this.department != null ? normalizeDepartmentName(this.department.name) : "");
-        domainStudent.setGroup(this.group != null ? this.group.name : "");
+        // 🔧 关键修复：使用group.code转换为标准班组名称（"一组"、"二组"等），而不是group.name
+        // 因为DutySchedule中使用的是标准班组名称进行白班/晚班判断
+        domainStudent.setGroup(this.group != null ? convertGroupCodeToName(this.group.code) : "");
         domainStudent.setRecommendedExaminer1Dept(this.recommendedExaminer1Dept != null ? normalizeDepartmentName(this.recommendedExaminer1Dept.name) : "");
         domainStudent.setRecommendedExaminer2Dept(this.recommendedExaminer2Dept != null ? normalizeDepartmentName(this.recommendedExaminer2Dept.name) : "");
         domainStudent.setRecommendedBackupDept(this.recommendedBackupDept != null ? normalizeDepartmentName(this.recommendedBackupDept.name) : "");
@@ -118,6 +120,23 @@ public class Student extends PanacheEntity {
         domainStudent.setDay1Subjects(this.day1Subjects);
         domainStudent.setDay2Subjects(this.day2Subjects);
         return domainStudent;
+    }
+    
+    /**
+     * 🔧 关键修复：将班组代码转换为标准班组名称
+     * 数据库中存储的是GROUP_1、GROUP_2等代码
+     * 但DutySchedule中使用的是"一组"、"二组"等名称进行判断
+     */
+    private String convertGroupCodeToName(String groupCode) {
+        if (groupCode == null) return "";
+        switch (groupCode) {
+            case "GROUP_1": return "一组";
+            case "GROUP_2": return "二组";
+            case "GROUP_3": return "三组";
+            case "GROUP_4": return "四组";
+            case "GROUP_NONE": return "";
+            default: return "";
+        }
     }
     
     /**

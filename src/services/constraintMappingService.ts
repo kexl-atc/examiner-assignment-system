@@ -2,7 +2,32 @@ import {
   FRONTEND_HARD_CONSTRAINTS,
   FRONTEND_SOFT_CONSTRAINTS,
 } from '../utils/constraintMappingValidator'
-import { constraintMappingApi, type ConstraintMapping } from './constraintMappingApi'
+import { apiService } from './api-service'
+
+// 从 constraintMappingApi 合并的接口定义
+export interface ConstraintMapping {
+  frontendId: string
+  backendName: string
+  constraintType: 'hard' | 'soft'
+  description?: string
+}
+
+export interface MappingResponse {
+  hardConstraints: Record<string, string>
+  softConstraints: Record<string, string>
+  totalMappings: number
+  lastUpdated: string
+}
+
+export interface WeightMappingRequest {
+  frontendWeight: number
+}
+
+export interface WeightMappingResponse {
+  backendWeight: number
+  mappingFunction: string
+  scalingFactor: number
+}
 
 /**
  * 约束映射服务
@@ -354,6 +379,184 @@ export class ConstraintMappingService {
   }
 }
 
+  // ============================================
+  // 以下方法从 constraintMappingApi.ts 合并而来
+  // ============================================
+
+  private readonly apiBaseUrl = 'constraint-mapping'
+
+  /**
+   * 获取所有约束映射（API方法）
+   */
+  async getAllMappings(): Promise<MappingResponse> {
+    try {
+      const response = await apiService.get<MappingResponse>(`${this.apiBaseUrl}/all`)
+      return (
+        response.data || {
+          hardConstraints: {},
+          softConstraints: {},
+          totalMappings: 0,
+          lastUpdated: new Date().toISOString(),
+        }
+      )
+    } catch (error) {
+      console.error('获取约束映射失败:', error)
+      // 使用本地映射作为 fallback
+      const mapping = await this.getEffectiveMapping()
+      return {
+        hardConstraints: mapping.hardConstraints,
+        softConstraints: mapping.softConstraints,
+        totalMappings: Object.keys(mapping.hardConstraints).length + Object.keys(mapping.softConstraints).length,
+        lastUpdated: new Date().toISOString(),
+      }
+    }
+  }
+
+  /**
+   * 获取硬约束映射（API方法）
+   */
+  async getHardConstraintMappings(): Promise<Record<string, string>> {
+    try {
+      const response = await apiService.get<Record<string, string>>(
+        `${this.apiBaseUrl}/hard-constraints`
+      )
+      return response.data || this.getHardConstraintMapping()
+    } catch (error) {
+      console.error('获取硬约束映射失败:', error)
+      return this.getHardConstraintMapping()
+    }
+  }
+
+  /**
+   * 获取软约束映射（API方法）
+   */
+  async getSoftConstraintMappings(): Promise<Record<string, string>> {
+    try {
+      const response = await apiService.get<Record<string, string>>(
+        `${this.apiBaseUrl}/soft-constraints`
+      )
+      return response.data || this.getSoftConstraintMapping()
+    } catch (error) {
+      console.error('获取软约束映射失败:', error)
+      return this.getSoftConstraintMapping()
+    }
+  }
+
+  /**
+   * 根据前端约束键获取后端约束名称（API方法）
+   */
+  async getBackendConstraintByFrontendKey(frontendKey: string): Promise<{
+    backendName: string
+    constraintType: 'hard' | 'soft'
+  }> {
+    try {
+      const response = await apiService.get<{
+        backendName: string
+        constraintType: 'hard' | 'soft'
+      }>(`${this.apiBaseUrl}/frontend-to-backend?frontendKey=${encodeURIComponent(frontendKey)}`)
+      return response.data || { backendName: await this.mapFrontendToBackend(frontendKey), constraintType: 'hard' }
+    } catch (error) {
+      console.error('获取后端约束失败:', error)
+      return { backendName: await this.mapFrontendToBackend(frontendKey), constraintType: 'hard' }
+    }
+  }
+
+  /**
+   * 根据后端约束名称获取前端约束键（API方法）
+   */
+  async getFrontendConstraintByBackendName(backendName: string): Promise<{
+    frontendKey: string
+    constraintType: 'hard' | 'soft'
+  }> {
+    try {
+      const response = await apiService.get<{
+        frontendKey: string
+        constraintType: 'hard' | 'soft'
+      }>(`${this.apiBaseUrl}/backend-to-frontend?backendName=${encodeURIComponent(backendName)}`)
+      return response.data || { frontendKey: await this.mapBackendToFrontend(backendName), constraintType: 'hard' }
+    } catch (error) {
+      console.error('获取前端约束失败:', error)
+      return { frontendKey: await this.mapBackendToFrontend(backendName), constraintType: 'hard' }
+    }
+  }
+
+  /**
+   * 将前端权重转换为后端权重（API方法）
+   */
+  async convertFrontendToBackendWeight(frontendWeight: number): Promise<WeightMappingResponse> {
+    try {
+      const response = await apiService.post<WeightMappingResponse>(
+        `${this.apiBaseUrl}/weight/frontend-to-backend`,
+        { frontendWeight }
+      )
+      return response.data || { backendWeight: frontendWeight, mappingFunction: 'linear', scalingFactor: 1 }
+    } catch (error) {
+      console.error('权重转换失败:', error)
+      return { backendWeight: frontendWeight, mappingFunction: 'linear', scalingFactor: 1 }
+    }
+  }
+
+  /**
+   * 将后端权重转换为前端权重（API方法）
+   */
+  async convertBackendToFrontendWeight(backendWeight: number): Promise<{
+    frontendWeight: number
+    mappingFunction: string
+    scalingFactor: number
+  }> {
+    try {
+      const response = await apiService.post<{
+        frontendWeight: number
+        mappingFunction: string
+        scalingFactor: number
+      }>(`${this.apiBaseUrl}/weight/backend-to-frontend`, { backendWeight })
+      return response.data || { frontendWeight: backendWeight, mappingFunction: 'linear', scalingFactor: 1 }
+    } catch (error) {
+      console.error('权重转换失败:', error)
+      return { frontendWeight: backendWeight, mappingFunction: 'linear', scalingFactor: 1 }
+    }
+  }
+
+  /**
+   * 批量转换前端权重到后端权重（API方法）
+   */
+  async batchConvertFrontendToBackendWeights(
+    weightMappings: Record<string, number>
+  ): Promise<Record<string, number>> {
+    try {
+      const response = await apiService.post<Record<string, number>>(
+        `${this.apiBaseUrl}/weight/batch-frontend-to-backend`,
+        { weightMappings }
+      )
+      return response.data || weightMappings
+    } catch (error) {
+      console.error('批量权重转换失败:', error)
+      return weightMappings
+    }
+  }
+
+  /**
+   * 批量转换后端权重到前端权重（API方法）
+   */
+  async batchConvertBackendToFrontendWeights(
+    weightMappings: Record<string, number>
+  ): Promise<Record<string, number>> {
+    try {
+      const response = await apiService.post<Record<string, number>>(
+        `${this.apiBaseUrl}/weight/batch-backend-to-frontend`,
+        { weightMappings }
+      )
+      return response.data || weightMappings
+    } catch (error) {
+      console.error('批量权重转换失败:', error)
+      return weightMappings
+    }
+  }
+}
+
 // 导出单例实例
 export const constraintMappingService = new ConstraintMappingService()
 export default constraintMappingService
+
+// 为了向后兼容，导出 constraintMappingApi 别名
+export const constraintMappingApi = constraintMappingService

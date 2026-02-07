@@ -4,7 +4,6 @@
  */
 
 import { constraintMappingService } from '../services/constraintMappingService'
-import { constraintMappingApi } from '../services/constraintMappingApi'
 
 // 后端约束定义（基于OptimizedConstraintConfiguration.java）
 const BACKEND_HARD_CONSTRAINTS = [

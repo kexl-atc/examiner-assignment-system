@@ -249,7 +249,7 @@ const loadTeacherData = async () => {
   loading.value = true
   try {
     // 从存储服务加载考官数据
-    const { storageService } = await import('../utils/storageService')
+    const { storageService } = await import('../services/storageService')
     const teacherList = await storageService.loadTeachers()
 
     if (teacherList.length > 0) {

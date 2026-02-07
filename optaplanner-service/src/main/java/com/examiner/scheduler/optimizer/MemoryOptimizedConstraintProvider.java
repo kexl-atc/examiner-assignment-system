@@ -1,6 +1,7 @@
 package com.examiner.scheduler.optimizer;
 
 import com.examiner.scheduler.domain.*;
+import com.examiner.scheduler.config.HolidayConfig;
 import org.optaplanner.core.api.score.buildin.hardsoft.HardSoftScore;
 import org.optaplanner.core.api.score.stream.Constraint;
 import org.optaplanner.core.api.score.stream.ConstraintFactory;
@@ -9,6 +10,8 @@ import org.optaplanner.core.api.score.stream.Joiners;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.Objects;
 
 /**
@@ -217,9 +220,14 @@ public class MemoryOptimizedConstraintProvider implements ConstraintProvider {
                 .asConstraint("backupExaminerMustBeDifferentPerson");
     }
     
+    // 🆕 节假日配置（静态缓存，避免重复创建）
+    private static final HolidayConfig holidayConfig = new HolidayConfig();
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    
     /**
      * HC9: 考官不可用期不能安排考试 ⭐ 新增
      * 优化：高效检查考官的unavailablePeriods
+     * 🔧 修复：节假日不检查不可用期（节假日由HC1约束单独处理，避免逻辑冗余）
      */
     private Constraint noUnavailableExaminer(ConstraintFactory constraintFactory) {
         return constraintFactory
@@ -227,16 +235,27 @@ public class MemoryOptimizedConstraintProvider implements ConstraintProvider {
                 .filter(a -> a.getExamDate() != null)
                 .filter(a -> {
                     String examDate = a.getExamDate();
-                    // 检查考官1是否在不可用期
-                    if (a.getExaminer1() != null && a.getExaminer1().isUnavailableOnDate(examDate)) {
+                    
+                    // 🔧 修复：首先检查是否是节假日，节假日不检查不可用期
+                    try {
+                        LocalDate date = LocalDate.parse(examDate, DATE_FORMATTER);
+                        if (holidayConfig.isHoliday(date)) {
+                            return false; // 节假日由HC1约束处理
+                        }
+                    } catch (Exception e) {
+                        // 日期解析失败，继续检查
+                    }
+                    
+                    // 检查考官1是否在不可用期（传入holidayConfig过滤节假日）
+                    if (a.getExaminer1() != null && a.getExaminer1().isUnavailableOnDate(examDate, holidayConfig)) {
                         return true;
                     }
                     // 检查考官2是否在不可用期
-                    if (a.getExaminer2() != null && a.getExaminer2().isUnavailableOnDate(examDate)) {
+                    if (a.getExaminer2() != null && a.getExaminer2().isUnavailableOnDate(examDate, holidayConfig)) {
                         return true;
                     }
                     // 检查备份考官是否在不可用期
-                    if (a.getBackupExaminer() != null && a.getBackupExaminer().isUnavailableOnDate(examDate)) {
+                    if (a.getBackupExaminer() != null && a.getBackupExaminer().isUnavailableOnDate(examDate, holidayConfig)) {
                         return true;
                     }
                     return false;

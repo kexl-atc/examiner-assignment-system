@@ -1,221 +1,166 @@
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpExchange;
-import java.net.InetSocketAddress;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.io.*;
+import java.net.*;
 import java.nio.file.*;
+import java.util.*;
 
 public class SimpleHttpServer {
+    private static String basePath;
     private static final int BACKEND_PORT = 8082;
+    private static final String BACKEND_HOST = "127.0.0.1";
     
-    public static void main(String[] args) throws Exception {
-        int port = 8081;
-        String rootDir = "supervisor/frontend/dist";
+    public static void main(String[] args) throws IOException {
+        if (args.length < 2) {
+            System.out.println("Usage: java SimpleHttpServer <port> <basePath>");
+            System.exit(1);
+        }
         
-        if (args.length > 0) port = Integer.parseInt(args[0]);
-        if (args.length > 1) rootDir = args[1];
+        int port = Integer.parseInt(args[0]);
+        basePath = args[1];
         
-        final String root = rootDir;
-        HttpServer server = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 0);
+        HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         
-        // API Proxy: Forward /api/* requests to backend
-        server.createContext("/api", exchange -> {
+        // API代理处理器 - 转发到后端
+        server.createContext("/api", new ApiProxyHandler());
+        server.createContext("/q", new ApiProxyHandler());  // Quarkus健康检查
+        
+        // 静态文件处理器
+        server.createContext("/", new StaticFileHandler());
+        
+        server.setExecutor(null);
+        
+        System.out.println("================================");
+        System.out.println("  HTTP Server Started");
+        System.out.println("  Port: " + port);
+        System.out.println("  Base: " + basePath);
+        System.out.println("  API Proxy: http://" + BACKEND_HOST + ":" + BACKEND_PORT);
+        System.out.println("================================");
+        
+        server.start();
+    }
+    
+    // API代理处理器 - 将请求转发到后端
+    static class ApiProxyHandler implements HttpHandler {
+        public void handle(HttpExchange exchange) throws IOException {
+            String path = exchange.getRequestURI().getPath();
+            String query = exchange.getRequestURI().getQuery();
+            String targetUrl = "http://" + BACKEND_HOST + ":" + BACKEND_PORT + path;
+            if (query != null && !query.isEmpty()) {
+                targetUrl += "?" + query;
+            }
+            
+            String method = exchange.getRequestMethod();
+            
             try {
-                // Handle OPTIONS preflight requests
-                if (exchange.getRequestMethod().equals("OPTIONS")) {
-                    exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-                    exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
-                    exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "*");
-                    exchange.getResponseHeaders().set("Access-Control-Max-Age", "3600");
-                    exchange.sendResponseHeaders(200, 0);
+                URL url = new URL(targetUrl);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod(method);
+                conn.setConnectTimeout(30000);
+                conn.setReadTimeout(30000);
+                conn.setDoInput(true);
+                conn.setDoOutput(true);
+                
+                // 复制请求头
+                Set<String> headers = exchange.getRequestHeaders().keySet();
+                for (String header : headers) {
+                    if (!header.equalsIgnoreCase("Host") && !header.equalsIgnoreCase("Content-Length")) {
+                        List<String> values = exchange.getRequestHeaders().get(header);
+                        for (String value : values) {
+                            conn.addRequestProperty(header, value);
+                        }
+                    }
+                }
+                
+                // 复制请求体
+                if (method.equals("POST") || method.equals("PUT")) {
+                    conn.setRequestProperty("Content-Type", exchange.getRequestHeaders().getFirst("Content-Type"));
+                    try (OutputStream os = conn.getOutputStream()) {
+                        byte[] body = exchange.getRequestBody().readAllBytes();
+                        os.write(body);
+                    }
+                }
+                
+                // 获取响应
+                int responseCode = conn.getResponseCode();
+                String contentType = conn.getContentType();
+                if (contentType == null) contentType = "application/json";
+                
+                // 复制响应头
+                exchange.getResponseHeaders().set("Content-Type", contentType);
+                exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+                
+                // 读取响应体
+                byte[] responseBody;
+                try (InputStream is = (responseCode < 400) ? conn.getInputStream() : conn.getErrorStream()) {
+                    if (is != null) {
+                        responseBody = is.readAllBytes();
+                    } else {
+                        responseBody = new byte[0];
+                    }
+                }
+                
+                exchange.sendResponseHeaders(responseCode, responseBody.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(responseBody);
+                }
+                
+            } catch (Exception e) {
+                System.err.println("Proxy error: " + e.getMessage());
+                String errorJson = "{\"error\":\"Backend not available\",\"message\":\"" + e.getMessage() + "\"}";
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                byte[] bytes = errorJson.getBytes();
+                exchange.sendResponseHeaders(503, bytes.length);
+                exchange.getResponseBody().write(bytes);
+                exchange.close();
+            }
+        }
+    }
+    
+    // 静态文件处理器
+    static class StaticFileHandler implements HttpHandler {
+        public void handle(HttpExchange exchange) throws IOException {
+            String path = exchange.getRequestURI().getPath();
+            if (path.equals("/")) {
+                path = "/index.html";
+            }
+            
+            // Security: prevent directory traversal
+            path = path.replace("..", "");
+            
+            File file = new File(basePath, path);
+            
+            if (!file.exists() || file.isDirectory()) {
+                // Try index.html for SPA routes
+                file = new File(basePath, "/index.html");
+                if (!file.exists()) {
+                    String response = "404 Not Found";
+                    exchange.sendResponseHeaders(404, response.length());
+                    exchange.getResponseBody().write(response.getBytes());
                     exchange.close();
                     return;
                 }
-                
-                String path = exchange.getRequestURI().getPath();
-                String query = exchange.getRequestURI().getQuery();
-                String fullPath = path + (query != null ? "?" + query : "");
-                
-                System.out.println("[API Proxy] " + exchange.getRequestMethod() + " " + fullPath);
-                
-                // Build backend URL
-                URL backendUrl = new URL("http://127.0.0.1:" + BACKEND_PORT + fullPath);
-                System.out.println("[API Proxy] Forwarding to: " + backendUrl);
-                HttpURLConnection conn = (HttpURLConnection) backendUrl.openConnection();
-                
-                // Set request method
-                conn.setRequestMethod(exchange.getRequestMethod());
-                
-                // Copy request headers
-                exchange.getRequestHeaders().forEach((key, values) -> {
-                    if (!key.equalsIgnoreCase("Host") && !key.equalsIgnoreCase("Connection")) {
-                        values.forEach(value -> conn.setRequestProperty(key, value));
-                    }
-                });
-                
-                // Copy request body (if any)
-                if (exchange.getRequestMethod().equals("POST") || 
-                    exchange.getRequestMethod().equals("PUT") || 
-                    exchange.getRequestMethod().equals("PATCH")) {
-                    conn.setDoOutput(true);
-                    // Ensure Content-Type is set for POST requests
-                    String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
-                    if (contentType == null || contentType.isEmpty()) {
-                        contentType = "application/json";
-                    }
-                    conn.setRequestProperty("Content-Type", contentType);
-                    
-                    // Read request body and log size
-                    ByteArrayOutputStream requestBodyBuffer = new ByteArrayOutputStream();
-                    try (InputStream is = exchange.getRequestBody()) {
-                        byte[] buffer = new byte[8192];
-                        int bytesRead;
-                        while ((bytesRead = is.read(buffer)) != -1) {
-                            requestBodyBuffer.write(buffer, 0, bytesRead);
-                        }
-                    }
-                    byte[] requestBody = requestBodyBuffer.toByteArray();
-                    System.out.println("[API Proxy] Request body size: " + requestBody.length + " bytes");
-                    
-                    // Write request body to backend
-                    try (OutputStream os = conn.getOutputStream()) {
-                        os.write(requestBody);
-                        os.flush();
-                    }
-                }
-                
-                // Get response
-                int responseCode = conn.getResponseCode();
-                System.out.println("[API Proxy] Response code: " + responseCode);
-                
-                // Log error response body for debugging
-                if (responseCode >= 400) {
-                    try {
-                        InputStream errorStream = conn.getErrorStream();
-                        if (errorStream != null) {
-                            ByteArrayOutputStream errorBuffer = new ByteArrayOutputStream();
-                            byte[] buffer = new byte[1024];
-                            int bytesRead;
-                            while ((bytesRead = errorStream.read(buffer)) != -1) {
-                                errorBuffer.write(buffer, 0, bytesRead);
-                            }
-                            String errorBody = errorBuffer.toString("UTF-8");
-                            System.err.println("[API Proxy Error] Response body: " + errorBody.substring(0, Math.min(500, errorBody.length())));
-                        }
-                    } catch (Exception e) {
-                        System.err.println("[API Proxy Error] Failed to read error response: " + e.getMessage());
-                    }
-                }
-                exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-                exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-                exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "*");
-                
-                // Copy response headers
-                conn.getHeaderFields().forEach((key, values) -> {
-                    if (key != null && !key.equalsIgnoreCase("Transfer-Encoding")) {
-                        values.forEach(value -> exchange.getResponseHeaders().add(key, value));
-                    }
-                });
-                
-                // Copy response body
-                InputStream responseStream = responseCode >= 200 && responseCode < 300 
-                    ? conn.getInputStream() 
-                    : conn.getErrorStream();
-                
-                if (responseStream != null) {
-                    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-                    byte[] data = new byte[8192];
-                    int bytesRead;
-                    while ((bytesRead = responseStream.read(data)) != -1) {
-                        buffer.write(data, 0, bytesRead);
-                    }
-                    byte[] responseData = buffer.toByteArray();
-                    exchange.sendResponseHeaders(responseCode, responseData.length);
-                    exchange.getResponseBody().write(responseData);
-                } else {
-                    exchange.sendResponseHeaders(responseCode, 0);
-                }
-                
-                conn.disconnect();
-            } catch (Exception e) {
-                System.err.println("[API Proxy Error] " + e.getMessage());
-                System.err.println("[API Proxy Error] Path: " + exchange.getRequestURI().getPath());
-                e.printStackTrace();
-                String errorMsg = "{\"error\":\"Backend connection failed: " + e.getMessage() + "\"}";
-                exchange.getResponseHeaders().set("Content-Type", "application/json");
-                exchange.sendResponseHeaders(502, errorMsg.length());
-                exchange.getResponseBody().write(errorMsg.getBytes());
-            } finally {
-                exchange.close();
-            }
-        });
-        
-        // Static file service
-        server.createContext("/", exchange -> {
-            String path = exchange.getRequestURI().getPath();
-            if (path.equals("/")) path = "/index.html";
-            
-            // Skip API requests (should be handled by /api handler)
-            if (path.startsWith("/api")) {
-                exchange.sendResponseHeaders(404, 0);
-                exchange.close();
-                return;
             }
             
-            File file = new File(root + path);
-            if (file.exists() && file.isFile()) {
-                byte[] data = Files.readAllBytes(file.toPath());
-                String contentType = getContentType(path);
-                exchange.getResponseHeaders().set("Content-Type", contentType);
-                exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-                exchange.sendResponseHeaders(200, data.length);
-                exchange.getResponseBody().write(data);
-            } else {
-                // Try index.html for SPA routing
-                File index = new File(root + "/index.html");
-                if (index.exists()) {
-                    byte[] data = Files.readAllBytes(index.toPath());
-                    exchange.getResponseHeaders().set("Content-Type", "text/html");
-                    exchange.sendResponseHeaders(200, data.length);
-                    exchange.getResponseBody().write(data);
-                } else {
-                    String msg = "404 Not Found";
-                    exchange.sendResponseHeaders(404, msg.length());
-                    exchange.getResponseBody().write(msg.getBytes());
-                }
-            }
+            String contentType = getContentType(file.getName());
+            exchange.getResponseHeaders().set("Content-Type", contentType);
+            
+            byte[] content = Files.readAllBytes(file.toPath());
+            exchange.sendResponseHeaders(200, content.length);
+            exchange.getResponseBody().write(content);
             exchange.close();
-        });
+        }
         
-        server.setExecutor(null);
-        server.start();
-        System.out.println("========================================");
-        System.out.println("  Frontend HTTP Server Started");
-        System.out.println("========================================");
-        System.out.println("Port: " + port);
-        System.out.println("Root: " + root);
-        System.out.println("URL:  http://127.0.0.1:" + port);
-        System.out.println("========================================");
-        System.out.println("Press Ctrl+C to stop");
-    }
-    
-    static String getContentType(String path) {
-        path = path.toLowerCase();
-        if (path.endsWith(".html")) return "text/html; charset=utf-8";
-        if (path.endsWith(".js")) return "application/javascript; charset=utf-8";
-        if (path.endsWith(".css")) return "text/css; charset=utf-8";
-        if (path.endsWith(".json")) return "application/json; charset=utf-8";
-        if (path.endsWith(".png")) return "image/png";
-        if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
-        if (path.endsWith(".gif")) return "image/gif";
-        if (path.endsWith(".svg")) return "image/svg+xml";
-        if (path.endsWith(".ico")) return "image/x-icon";
-        if (path.endsWith(".woff")) return "font/woff";
-        if (path.endsWith(".woff2")) return "font/woff2";
-        if (path.endsWith(".ttf")) return "font/ttf";
-        return "application/octet-stream";
+        private String getContentType(String filename) {
+            if (filename.endsWith(".html")) return "text/html; charset=utf-8";
+            if (filename.endsWith(".js")) return "application/javascript";
+            if (filename.endsWith(".css")) return "text/css";
+            if (filename.endsWith(".json")) return "application/json";
+            if (filename.endsWith(".svg")) return "image/svg+xml";
+            if (filename.endsWith(".png")) return "image/png";
+            if (filename.endsWith(".ico")) return "image/x-icon";
+            return "application/octet-stream";
+        }
     }
 }
-

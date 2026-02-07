@@ -73,8 +73,8 @@ export const CONSTRAINT_CONFIG = {
   },
 }
 
-// 性能配置
-export const PERFORMANCE_CONFIG = {
+// 前端性能限制配置（注意：性能监控配置在 performance.ts 中）
+export const PERFORMANCE_LIMITS = {
   // 前端性能
   FRONTEND: {
     LAZY_LOAD_THRESHOLD: import.meta.env.VITE_LAZY_LOAD_THRESHOLD
@@ -181,12 +181,15 @@ export const DEV_CONFIG = {
   },
 }
 
+// 从 performance.ts 重新导出性能监控配置（使用别名避免冲突）
+export { PERFORMANCE_CONFIG as PERFORMANCE_MONITORING } from './performance'
+
 // 导出所有配置
 export const CONFIG = {
   API: API_CONFIG,
   CACHE: CACHE_CONFIG,
   CONSTRAINT: CONSTRAINT_CONFIG,
-  PERFORMANCE: PERFORMANCE_CONFIG,
+  PERFORMANCE: PERFORMANCE_LIMITS,
   UI: UI_CONFIG,
   SECURITY: SECURITY_CONFIG,
   DEV: DEV_CONFIG,

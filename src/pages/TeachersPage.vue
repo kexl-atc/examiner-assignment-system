@@ -600,11 +600,11 @@ import {
   type UnavailablePeriod,
 } from '../utils/scheduleService'
 import {
-  unifiedStorageService,
+  storageService,
   type ExtendedTeacher,
   type UnifiedStorageConfig,
   type StorageStats,
-} from '../services/unifiedStorageService'
+} from '../services/storageService'
 import { useSidebarAutoCollapse } from '../composables/useSidebarAutoCollapse'
 import { useResponsive } from '../composables/useResponsive'
 import { DateUtils as dateUtils } from '../utils/dateUtils'
@@ -640,7 +640,7 @@ interface DuplicateAnalysisResult {
 // 考官数据类型定义 - 现在使用集中化的类型定义
 
 // 应用版本号 - 从 package.json 自动读取
-const appVersion = ref(import.meta.env.VITE_APP_VERSION || '6.1.0')
+const appVersion = ref(import.meta.env.VITE_APP_VERSION || '0.0.0')
 
 // 响应式数据
 const sidebarCollapsed = ref(false)
@@ -700,10 +700,10 @@ const storageStats = ref<StorageStats>({
 const initStorageService = async () => {
   try {
     // 统一存储服务已经是单例，直接初始化
-    await unifiedStorageService.init()
+    await storageService.init()
 
     // 获取存储统计信息
-    storageStats.value = unifiedStorageService.getStorageStats()
+    storageStats.value = storageService.getStorageStats()
     process.env.NODE_ENV === 'development' && console.log('统一存储服务初始化完成', storageStats.value)
   } catch (error) {
     console.error('存储服务初始化失败', error)
@@ -713,7 +713,7 @@ const initStorageService = async () => {
 // 从存储加载考官数据
 const loadTeachersFromStorage = async (): Promise<Teacher[]> => {
   try {
-    const teachers = await unifiedStorageService.loadTeachers()
+    const teachers = await storageService.loadTeachers()
     process.env.NODE_ENV === 'development' && console.log('从存储加载考官数据', teachers.length, '条记录')
     // 使用集中化服务更新所有考官的班次（确保班次是最新的）
     // 🆕 同时确保所有考官都有unavailablePeriods字段
@@ -733,9 +733,9 @@ const loadTeachersFromStorage = async (): Promise<Teacher[]> => {
 // 保存考官数据到存储
 const saveTeachersToStorage = async (teacherList: ExtendedTeacher[]) => {
   try {
-    await unifiedStorageService.saveTeachers(teacherList)
+    await storageService.saveTeachers(teacherList)
     // 更新存储统计信息
-    storageStats.value = unifiedStorageService.getStorageStats()
+    storageStats.value = storageService.getStorageStats()
   } catch (error) {
     console.error('保存考官数据失败:', error)
     const errorMessage = error instanceof Error ? error.message : String(error)
